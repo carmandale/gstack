@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gstack Structure Explainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-display: "Fraunces", Georgia, serif;
+    --font-mono: "IBM Plex Mono", "SF Mono", Consolas, monospace;
+
+    --bg: #fbf7ee;
+    --surface: #fffdf7;
+    --surface-raised: #ffffff;
+    --surface-recessed: #f0eadf;
+    --border: rgba(43, 43, 36, 0.10);
+    --border-strong: rgba(43, 43, 36, 0.20);
+    --text: #24231e;
+    --text-dim: #70695d;
+
+    --ink: #31505c;
+    --ink-dim: rgba(49, 80, 92, 0.12);
+    --skill: #2f8f75;
+    --skill-dim: rgba(47, 143, 117, 0.13);
+    --runtime: #b64d3f;
+    --runtime-dim: rgba(182, 77, 63, 0.13);
+    --memory: #7f4aa2;
+    --memory-dim: rgba(127, 74, 162, 0.12);
+    --ship: #c58a22;
+    --ship-dim: rgba(197, 138, 34, 0.14);
+    --verify: #4a6fb3;
+    --verify-dim: rgba(74, 111, 179, 0.12);
+
+    --shadow: 0 16px 42px rgba(53, 43, 27, 0.10), 0 2px 8px rgba(53, 43, 27, 0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171a17;
+      --surface: #20241f;
+      --surface-raised: #292d26;
+      --surface-recessed: #141712;
+      --border: rgba(239, 230, 208, 0.10);
+      --border-strong: rgba(239, 230, 208, 0.22);
+      --text: #f1eadb;
+      --text-dim: #b5a994;
+
+      --ink: #8bc3d2;
+      --ink-dim: rgba(139, 195, 210, 0.16);
+      --skill: #73d6ad;
+      --skill-dim: rgba(115, 214, 173, 0.16);
+      --runtime: #ec8b77;
+      --runtime-dim: rgba(236, 139, 119, 0.16);
+      --memory: #c497dc;
+      --memory-dim: rgba(196, 151, 220, 0.16);
+      --ship: #e8bd5f;
+      --ship-dim: rgba(232, 189, 95, 0.16);
+      --verify: #94b3ee;
+      --verify-dim: rgba(148, 179, 238, 0.16);
+
+      --shadow: 0 16px 44px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.22);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--text);
+    font-family: var(--font-mono);
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(135deg, var(--ink-dim) 0%, transparent 34%),
+      linear-gradient(315deg, var(--ship-dim) 0%, transparent 28%),
+      repeating-linear-gradient(0deg, transparent 0, transparent 31px, var(--border) 32px),
+      repeating-linear-gradient(90deg, transparent 0, transparent 31px, var(--border) 32px);
+    overflow-wrap: break-word;
+  }
+
+  a { color: inherit; }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--surface-recessed);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 2px 5px;
+  }
+
+  .page {
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 34px 0 44px;
+  }
+
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+    gap: 22px;
+    align-items: stretch;
+    margin-bottom: 22px;
+  }
+
+  .hero-main,
+  .hero-aside {
+    background: color-mix(in srgb, var(--surface) 92%, var(--ink) 8%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .hero-main {
+    padding: 30px;
+  }
+
+  .eyebrow {
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 600;
+    margin: 0 0 14px;
+    text-transform: uppercase;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: 0;
+  }
+
+  h1 {
+    margin: 0;
+    max-width: 780px;
+    font-size: 44px;
+    line-height: 1.02;
+    font-weight: 650;
+  }
+
+  .hero-copy {
+    max-width: 760px;
+    margin: 18px 0 0;
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.75;
+  }
+
+  .hero-aside {
+    padding: 24px;
+    display: grid;
+    align-content: center;
+    gap: 15px;
+  }
+
+  .stat {
+    border-top: 1px solid var(--border);
+    padding-top: 13px;
+  }
+
+  .stat:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .stat b {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 21px;
+    letter-spacing: 0;
+  }
+
+  .stat span {
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .section {
+    background: color-mix(in srgb, var(--surface) 94%, var(--bg) 6%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 22px;
+    padding: 24px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .section h2 {
+    margin: 0;
+    font-size: 26px;
+    line-height: 1.12;
+  }
+
+  .section-note {
+    max-width: 520px;
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.65;
+  }
+
+  .mermaid-wrap {
+    position: relative;
+    min-height: 420px;
+    overflow: auto;
+    padding: 34px 22px 26px;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 95%, var(--ink) 5%), var(--surface));
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    scrollbar-color: var(--border-strong) transparent;
+    scrollbar-width: thin;
+  }
+
+  .mermaid-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+  .mermaid-wrap::-webkit-scrollbar-track { background: transparent; }
+  .mermaid-wrap::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
+
+  .mermaid-wrap .mermaid {
+    min-width: 900px;
+    display: flex;
+    justify-content: center;
+    transform-origin: top center;
+    transition: transform 0.18s ease;
+  }
+
+  .zoom-controls {
+    position: sticky;
+    top: 8px;
+    left: 100%;
+    z-index: 5;
+    width: max-content;
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    margin-left: auto;
+    margin-bottom: -28px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  }
+
+  .zoom-controls button,
+  #chart-lightbox-controls button {
+    height: 30px;
+    min-width: 30px;
+    border: 0;
+    border-radius: 6px;
+    padding: 0 9px;
+    color: var(--text-dim);
+    background: transparent;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .zoom-controls button:hover,
+  #chart-lightbox-controls button:hover {
+    color: var(--text);
+    background: var(--surface-recessed);
+  }
+
+  .mermaid-wrap.is-zoomed { cursor: grab; }
+  .mermaid-wrap.is-panning { cursor: grabbing; user-select: none; }
+
+  .mermaid .nodeLabel {
+    color: var(--text) !important;
+    font-family: var(--font-display) !important;
+    font-size: 15px !important;
+    line-height: 1.2 !important;
+  }
+
+  .mermaid .edgeLabel {
+    color: var(--text-dim) !important;
+    background-color: var(--surface) !important;
+    font-family: var(--font-mono) !important;
+    font-size: 12px !important;
+  }
+
+  .mermaid .edgeLabel rect { fill: var(--surface) !important; }
+  .mermaid .edge-pattern-solid { stroke-width: 1.7px !important; }
+  .mermaid .cluster rect { rx: 8px !important; stroke: var(--border-strong) !important; fill: color-mix(in srgb, var(--surface) 90%, var(--ink) 10%) !important; }
+  .mermaid .cluster text { fill: var(--text) !important; font-family: var(--font-mono) !important; font-size: 13px !important; }
+  .mermaid .node rect,
+  .mermaid .node polygon,
+  .mermaid .node circle {
+    stroke-width: 1.8px !important;
+  }
+
+  .mermaid .node.entry rect,
+  .mermaid .node.entry polygon { fill: var(--ink-dim) !important; stroke: var(--ink) !important; }
+  .mermaid .node.skill rect,
+  .mermaid .node.skill polygon { fill: var(--skill-dim) !important; stroke: var(--skill) !important; }
+  .mermaid .node.runtime rect,
+  .mermaid .node.runtime polygon { fill: var(--runtime-dim) !important; stroke: var(--runtime) !important; }
+  .mermaid .node.install rect,
+  .mermaid .node.install polygon { fill: var(--ship-dim) !important; stroke: var(--ship) !important; }
+  .mermaid .node.memory rect,
+  .mermaid .node.memory polygon { fill: var(--memory-dim) !important; stroke: var(--memory) !important; }
+  .mermaid .node.verify rect,
+  .mermaid .node.verify polygon { fill: var(--verify-dim) !important; stroke: var(--verify) !important; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    margin-top: 14px;
+  }
+
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+
+  .swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    border: 1px solid var(--border-strong);
+  }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .card {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-raised);
+  }
+
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    line-height: 1.2;
+  }
+
+  .card p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.65;
+  }
+
+  .card .label {
+    display: inline-block;
+    margin-bottom: 12px;
+    color: var(--text);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .label.skill { color: var(--skill); }
+  .label.runtime { color: var(--runtime); }
+  .label.install { color: var(--ship); }
+  .label.memory { color: var(--memory); }
+  .label.verify { color: var(--verify); }
+
+  .runway {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .runway-step {
+    position: relative;
+    min-width: 0;
+    padding: 15px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .runway-step b {
+    display: block;
+    margin-bottom: 7px;
+    font-family: var(--font-display);
+    font-size: 17px;
+    letter-spacing: 0;
+  }
+
+  .runway-step span {
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .footnote {
+    margin: 18px 0 0;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.7;
+  }
+
+  #chart-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: none;
+  }
+
+  #chart-lightbox.is-open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #chart-lightbox-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.86);
+  }
+
+  #chart-lightbox-controls {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 2;
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  #chart-lightbox-viewport {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+  }
+
+  #chart-lightbox-viewport.is-panning {
+    cursor: grabbing;
+    user-select: none;
+  }
+
+  #chart-lightbox-viewport svg {
+    transform-origin: center center;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate {
+    animation: fadeUp 0.42s ease-out both;
+    animation-delay: calc(var(--i, 0) * 0.055s);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  @media (max-width: 980px) {
+    .hero { grid-template-columns: 1fr; }
+    .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .runway { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 620px) {
+    .page { width: min(100% - 20px, 1180px); padding-top: 16px; }
+    .hero-main, .hero-aside, .section { padding: 18px; }
+    h1 { font-size: 31px; }
+    .section-header { display: block; }
+    .section-note { margin-top: 10px; }
+    .card-grid, .runway { grid-template-columns: 1fr; }
+    .mermaid-wrap { padding-left: 12px; padding-right: 12px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+  <section class="hero">
+    <div class="hero-main animate" style="--i:0">
+      <p class="eyebrow">gstack at a glance</p>
+      <h1>A software factory made of agent roles, generated skills, browser tools, and memory.</h1>
+      <p class="hero-copy">
+        gstack packages opinionated development workflows as slash-command skills. The skills help an AI agent plan like a product team, review like a senior engineer, test with a real browser, ship with release discipline, and keep useful project knowledge alive between sessions.
+      </p>
+    </div>
+    <aside class="hero-aside animate" style="--i:1" aria-label="Key ideas">
+      <div class="stat">
+        <b>Workflow roles</b>
+        <span>Planning, design, engineering, QA, security, release, documentation, and operations are split into focused skills.</span>
+      </div>
+      <div class="stat">
+        <b>Runtime tools</b>
+        <span>A persistent Chromium daemon, design helpers, PDF/docs tooling, and deploy helpers turn prompts into executable work.</span>
+      </div>
+      <div class="stat">
+        <b>GBrain included</b>
+        <span>The repo explicitly includes <code>/setup-gbrain</code> and <code>/sync-gbrain</code>, so the memory loop appears in the diagram.</span>
+      </div>
+    </aside>
+  </section>
+
+  <section class="section animate" style="--i:2">
+    <div class="section-header">
+      <h2>How the pieces fit</h2>
+      <p class="section-note">Read top to bottom: user intent enters through slash commands, skills call runtime tools, generated docs keep host installs current, and GBrain feeds durable context back into future sessions.</p>
+    </div>
+
+    <div class="mermaid-wrap">
+      <div class="zoom-controls" aria-label="Diagram controls">
+        <button onclick="zoomDiagram(this, 1.2)" title="Zoom in" aria-label="Zoom in">+</button>
+        <button onclick="zoomDiagram(this, 0.8)" title="Zoom out" aria-label="Zoom out">-</button>
+        <button onclick="resetZoom(this)" title="Reset zoom" aria-label="Reset zoom">reset</button>
+        <button class="lb-expand" onclick="openLightbox(this.closest('.mermaid-wrap'))" title="Expand chart" aria-label="Expand chart">expand</button>
+      </div>
+      <pre class="mermaid">
+flowchart TD
+  U["User request<br/>feature, audit, QA, deploy"] --> R["Slash command router<br/>/office-hours /qa /ship /browse"]
+
+  subgraph Skills["Workflow skill layer"]
+    P["Plan mode reviews<br/>CEO, design, eng, DX"] --> AP["/autoplan<br/>review pipeline"]
+    I["Implementation reviews<br/>/review, /investigate, /codex"]
+    Q["Consumer verification<br/>/qa, /qa-only, /design-review"]
+    S["Release and deploy<br/>/ship, /land-and-deploy, /canary"]
+    O["Operations and docs<br/>/learn, /retro, /document-*"]
+  end
+
+  R --> P
+  R --> I
+  R --> Q
+  R --> S
+  R --> O
+
+  subgraph Runtime["Runtime tool layer"]
+    B["Browse daemon<br/>persistent Chromium + localhost API"] --> BC["$B commands<br/>click, fill, snapshot, screenshot"]
+    OB["GStack Browser<br/>visible sidebar + cookie import"]
+    DT["Design and docs tools<br/>variants, HTML, PDF, release docs"]
+    CI["Test and deploy probes<br/>build, health check, canary"]
+  end
+
+  Q --> B
+  Q --> OB
+  S --> CI
+  O --> DT
+  I --> BC
+
+  subgraph Build["How SKILL.md files stay current"]
+    T["*.tmpl templates<br/>human workflow prose"] --> G["gen-skill-docs.ts<br/>fills placeholders"]
+    SRC["Source metadata<br/>commands, flags, resolvers"] --> G
+    HOST["hosts/*.ts<br/>Claude, Codex, OpenCode, Kiro, more"] --> G
+    G --> OUT["Generated SKILL.md<br/>installed per host"]
+  end
+
+  OUT --> R
+  BC --> SRC
+
+  subgraph Brain["GBrain memory loop"]
+    SET["/setup-gbrain<br/>PGLite, Supabase, or remote MCP"] --> GB["GBrain<br/>persistent knowledge base"]
+    SYNC["/sync-gbrain<br/>index repo code"] --> GB
+    GB --> GUIDE["GBrain Search Guidance<br/>CLAUDE.md context rules"]
+    O --> SAVE["Session learnings<br/>patterns, plans, retros"] --> GB
+  end
+
+  GUIDE --> R
+  R --> SET
+  R --> SYNC
+
+  subgraph Trust["Feedback and safety"]
+    V["Tests and lint<br/>bun test, skill checks"] --> F["Fresh generated docs<br/>no stale commands"]
+    C["Safety skills<br/>careful, freeze, guard"] --> R
+  end
+
+  G --> V
+  F --> OUT
+
+  class U,R entry;
+  class P,AP,I,Q,S,O skill;
+  class B,BC,OB,DT,CI runtime;
+  class T,G,SRC,HOST,OUT install;
+  class SET,SYNC,GB,GUIDE,SAVE memory;
+  class V,F,C verify;
+      </pre>
+    </div>
+
+    <div class="legend" aria-label="Diagram legend">
+      <span class="legend-item"><span class="swatch" style="background:var(--ink-dim); border-color:var(--ink)"></span> Entry point</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--skill-dim); border-color:var(--skill)"></span> Workflow skill</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--runtime-dim); border-color:var(--runtime)"></span> Runtime tool</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--ship-dim); border-color:var(--ship)"></span> Generated install</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--memory-dim); border-color:var(--memory)"></span> GBrain memory</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--verify-dim); border-color:var(--verify)"></span> Verification and safety</span>
+    </div>
+  </section>
+
+  <section class="section animate" style="--i:3">
+    <div class="section-header">
+      <h2>The stack in five layers</h2>
+      <p class="section-note">The important design choice: most of gstack is Markdown methodology, but the risky loops have real tooling behind them.</p>
+    </div>
+
+    <div class="card-grid">
+      <article class="card">
+        <span class="label skill">1. Skills</span>
+        <h3>Specialist roles</h3>
+        <p>Slash commands such as <code>/office-hours</code>, <code>/review</code>, <code>/qa</code>, and <code>/ship</code> give the agent a narrower job and a stronger checklist.</p>
+      </article>
+      <article class="card">
+        <span class="label install">2. Templates</span>
+        <h3>Generated docs</h3>
+        <p><code>SKILL.md.tmpl</code> files hold the human workflow. <code>gen-skill-docs.ts</code> fills command references and host-specific blocks.</p>
+      </article>
+      <article class="card">
+        <span class="label runtime">3. Browser</span>
+        <h3>Real UI contact</h3>
+        <p>The browse binary talks to a long-lived Chromium daemon, so QA can click, type, inspect console output, and keep session state.</p>
+      </article>
+      <article class="card">
+        <span class="label memory">4. Memory</span>
+        <h3>GBrain loop</h3>
+        <p><code>/setup-gbrain</code> connects a memory backend. <code>/sync-gbrain</code> indexes repo code and writes search guidance for future agents.</p>
+      </article>
+      <article class="card">
+        <span class="label verify">5. Checks</span>
+        <h3>Freshness gates</h3>
+        <p><code>bun test</code>, <code>bun run build</code>, and <code>bun run skill:check</code> keep generated skills and runtime references from drifting.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section animate" style="--i:4">
+    <div class="section-header">
+      <h2>A simple try-out path</h2>
+      <p class="section-note">This is the low-risk path for understanding what gstack feels like before wiring the whole suite into a global setup.</p>
+    </div>
+
+    <div class="runway">
+      <div class="runway-step">
+        <b>1. Start with a role</b>
+        <span>Use <code>/office-hours</code> or <code>/plan-ceo-review</code> to feel the product-shaping side without touching runtime state.</span>
+      </div>
+      <div class="runway-step">
+        <b>2. Add browser contact</b>
+        <span>Try <code>/browse</code> or <code>/qa</code> against a safe local or staging page to see the persistent Chromium loop.</span>
+      </div>
+      <div class="runway-step">
+        <b>3. Keep it current</b>
+        <span>Run the generated-doc checks before trusting host output, especially after changing templates or browser commands.</span>
+      </div>
+      <div class="runway-step">
+        <b>4. Opt into memory</b>
+        <span>Use <code>/setup-gbrain</code> only when you want durable cross-session knowledge, then <code>/sync-gbrain</code> per repo.</span>
+      </div>
+    </div>
+
+    <p class="footnote">
+      GBrain is not inferred here. It is named in the repo's skill list and README, and the architecture docs include GBrain resolver placeholders that inject context-load and save instructions into brain-aware skills.
+    </p>
+  </section>
+</main>
+
+<div id="chart-lightbox" role="dialog" aria-label="Chart viewer" aria-modal="true">
+  <div id="chart-lightbox-backdrop"></div>
+  <div id="chart-lightbox-controls">
+    <button id="chart-lightbox-fit" title="Fit to view" aria-label="Fit chart to viewport">fit</button>
+    <button id="chart-lightbox-zin" title="Zoom in" aria-label="Zoom in">+</button>
+    <button id="chart-lightbox-zout" title="Zoom out" aria-label="Zoom out">-</button>
+    <button id="chart-lightbox-close" title="Close" aria-label="Close chart viewer">x</button>
+  </div>
+  <div id="chart-lightbox-viewport"></div>
+</div>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  import elkLayouts from "https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk/dist/mermaid-layout-elk.esm.min.mjs";
+
+  const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+  mermaid.registerLayoutLoaders(elkLayouts);
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: "loose",
+    theme: "base",
+    look: "classic",
+    layout: "elk",
+    flowchart: {
+      htmlLabels: true,
+      curve: "basis",
+      padding: 18,
+      nodeSpacing: 34,
+      rankSpacing: 52
+    },
+    themeVariables: {
+      primaryColor: isDark ? "#20241f" : "#fffdf7",
+      primaryBorderColor: isDark ? "#8bc3d2" : "#31505c",
+      primaryTextColor: isDark ? "#f1eadb" : "#24231e",
+      secondaryColor: isDark ? "#292d26" : "#f0eadf",
+      secondaryBorderColor: isDark ? "#73d6ad" : "#2f8f75",
+      secondaryTextColor: isDark ? "#f1eadb" : "#24231e",
+      tertiaryColor: isDark ? "#211b26" : "#f4ebf8",
+      tertiaryBorderColor: isDark ? "#c497dc" : "#7f4aa2",
+      tertiaryTextColor: isDark ? "#f1eadb" : "#24231e",
+      lineColor: isDark ? "#b5a994" : "#70695d",
+      fontSize: "15px",
+      fontFamily: "\"Fraunces\", Georgia, serif",
+      clusterBkg: isDark ? "#20241f" : "#fffdf7",
+      clusterBorder: isDark ? "rgba(239, 230, 208, 0.22)" : "rgba(43, 43, 36, 0.20)"
+    }
+  });
+</script>
+
+<script>
+  function updateZoomState(wrap) {
+    var target = wrap.querySelector(".mermaid");
+    var zoom = parseFloat(target.dataset.zoom || "1");
+    wrap.classList.toggle("is-zoomed", zoom > 1);
+  }
+
+  function zoomDiagram(btn, factor) {
+    var wrap = btn.closest(".mermaid-wrap");
+    var target = wrap.querySelector(".mermaid");
+    var current = parseFloat(target.dataset.zoom || "1");
+    var next = Math.min(Math.max(current * factor, 0.35), 5);
+    target.dataset.zoom = next;
+    target.style.transform = "scale(" + next + ")";
+    updateZoomState(wrap);
+  }
+
+  function resetZoom(btn) {
+    var wrap = btn.closest(".mermaid-wrap");
+    var target = wrap.querySelector(".mermaid");
+    target.dataset.zoom = "1";
+    target.style.transform = "scale(1)";
+    wrap.scrollLeft = 0;
+    wrap.scrollTop = 0;
+    updateZoomState(wrap);
+  }
+
+  document.querySelectorAll(".mermaid-wrap").forEach(function(wrap) {
+    wrap.addEventListener("wheel", function(e) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      var target = wrap.querySelector(".mermaid");
+      var current = parseFloat(target.dataset.zoom || "1");
+      var factor = e.deltaY < 0 ? 1.1 : 0.9;
+      var next = Math.min(Math.max(current * factor, 0.35), 5);
+      target.dataset.zoom = next;
+      target.style.transform = "scale(" + next + ")";
+      updateZoomState(wrap);
+    }, { passive: false });
+
+    var startX, startY, scrollLeft, scrollTop;
+    wrap.addEventListener("mousedown", function(e) {
+      if (e.target.closest(".zoom-controls")) return;
+      var target = wrap.querySelector(".mermaid");
+      if (parseFloat(target.dataset.zoom || "1") <= 1) return;
+      wrap.classList.add("is-panning");
+      startX = e.clientX;
+      startY = e.clientY;
+      scrollLeft = wrap.scrollLeft;
+      scrollTop = wrap.scrollTop;
+    });
+
+    window.addEventListener("mousemove", function(e) {
+      if (!wrap.classList.contains("is-panning")) return;
+      wrap.scrollLeft = scrollLeft - (e.clientX - startX);
+      wrap.scrollTop = scrollTop - (e.clientY - startY);
+    });
+
+    window.addEventListener("mouseup", function() {
+      wrap.classList.remove("is-panning");
+    });
+  });
+</script>
+
+<script>
+(function() {
+  var lightbox = document.getElementById("chart-lightbox");
+  var viewport = document.getElementById("chart-lightbox-viewport");
+  var isOpen = false;
+  var savedScrollY = 0;
+  var savedFocus = null;
+  var expandBtn = null;
+  var currentScale = 1;
+  var translateX = 0;
+  var translateY = 0;
+
+  function getLightboxFitScale(svg) {
+    var vb = svg.viewBox && svg.viewBox.baseVal;
+    var width = vb && vb.width > 0 ? vb.width : 0;
+    var height = vb && vb.height > 0 ? vb.height : 0;
+    if (width === 0 || height === 0) {
+      try {
+        var bbox = svg.getBBox();
+        width = bbox.width;
+        height = bbox.height;
+      } catch (e) {}
+    }
+    if (width === 0 || height === 0) {
+      width = 900;
+      height = 600;
+    }
+    return Math.min((window.innerWidth - 96) / width, (window.innerHeight - 96) / height);
+  }
+
+  function applyTransform() {
+    var svg = viewport.querySelector("svg");
+    if (!svg) return;
+    svg.style.transform = "scale(" + currentScale + ") translate(" + (translateX / currentScale) + "px, " + (translateY / currentScale) + "px)";
+  }
+
+  function fitToView() {
+    var svg = viewport.querySelector("svg");
+    if (!svg) return;
+    currentScale = getLightboxFitScale(svg);
+    translateX = 0;
+    translateY = 0;
+    applyTransform();
+  }
+
+  window.openLightbox = function(wrap) {
+    if (isOpen) return;
+    var svgEl = wrap.querySelector("svg");
+    if (!svgEl) return;
+    isOpen = true;
+    expandBtn = wrap.querySelector(".lb-expand");
+    savedFocus = document.activeElement;
+    savedScrollY = window.scrollY;
+
+    var clone = svgEl.cloneNode(true);
+    var vb = clone.viewBox && clone.viewBox.baseVal;
+    if (vb && vb.width > 0 && vb.height > 0) {
+      clone.setAttribute("width", vb.width);
+      clone.setAttribute("height", vb.height);
+    }
+    clone.style.maxWidth = "none";
+    clone.style.maxHeight = "none";
+    clone.style.overflow = "visible";
+    clone.style.transformOrigin = "center center";
+
+    viewport.appendChild(clone);
+    lightbox.classList.add("is-open");
+    document.body.style.overflow = "hidden";
+    fitToView();
+    document.getElementById("chart-lightbox-close").focus();
+    document.addEventListener("keydown", onKeydown);
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    viewport.addEventListener("mousedown", onMouseDown);
+  };
+
+  function closeLightbox() {
+    if (!isOpen) return;
+    isOpen = false;
+    lightbox.classList.remove("is-open");
+    viewport.innerHTML = "";
+    document.body.style.overflow = "";
+    window.scrollTo(0, savedScrollY);
+    document.removeEventListener("keydown", onKeydown);
+    viewport.removeEventListener("wheel", onWheel);
+    viewport.removeEventListener("mousedown", onMouseDown);
+    window.removeEventListener("mousemove", onMouseMove);
+    window.removeEventListener("mouseup", onMouseUp);
+    viewport.classList.remove("is-panning");
+    currentScale = 1;
+    translateX = 0;
+    translateY = 0;
+    if (expandBtn) expandBtn.focus();
+    else if (savedFocus) savedFocus.focus();
+  }
+
+  function onKeydown(e) {
+    if (e.key === "Escape") {
+      closeLightbox();
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "Tab") {
+      var btns = lightbox.querySelectorAll("button");
+      var first = btns[0];
+      var last = btns[btns.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        last.focus();
+        e.preventDefault();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        first.focus();
+        e.preventDefault();
+      }
+    }
+  }
+
+  function onWheel(e) {
+    e.preventDefault();
+    var rect = viewport.getBoundingClientRect();
+    var cx = e.clientX - rect.left - rect.width / 2;
+    var cy = e.clientY - rect.top - rect.height / 2;
+    var factor = e.deltaY < 0 ? 1.1 : 0.9;
+    var nextScale = Math.min(Math.max(currentScale * factor, 0.3), 5);
+    var ratio = nextScale / currentScale;
+    translateX = cx - (cx - translateX) * ratio;
+    translateY = cy - (cy - translateY) * ratio;
+    currentScale = nextScale;
+    applyTransform();
+  }
+
+  var dragStartX, dragStartY, dragTranslateX, dragTranslateY;
+
+  function onMouseDown(e) {
+    if (e.target.closest("#chart-lightbox-controls")) return;
+    e.preventDefault();
+    viewport.classList.add("is-panning");
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragTranslateX = translateX;
+    dragTranslateY = translateY;
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
+  function onMouseMove(e) {
+    translateX = dragTranslateX + (e.clientX - dragStartX);
+    translateY = dragTranslateY + (e.clientY - dragStartY);
+    applyTransform();
+  }
+
+  function onMouseUp() {
+    viewport.classList.remove("is-panning");
+    window.removeEventListener("mousemove", onMouseMove);
+    window.removeEventListener("mouseup", onMouseUp);
+  }
+
+  document.getElementById("chart-lightbox-close").addEventListener("click", closeLightbox);
+  document.getElementById("chart-lightbox-backdrop").addEventListener("click", closeLightbox);
+  document.getElementById("chart-lightbox-fit").addEventListener("click", fitToView);
+  document.getElementById("chart-lightbox-zin").addEventListener("click", function() {
+    currentScale = Math.min(currentScale * 1.3, 5);
+    applyTransform();
+  });
+  document.getElementById("chart-lightbox-zout").addEventListener("click", function() {
+    currentScale = Math.max(currentScale * 0.7, 0.3);
+    applyTransform();
+  });
+})();
+</script>
+</body>
+</html>
