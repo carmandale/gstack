@@ -842,32 +842,28 @@ GBrain is set up and synced on this machine. The agent should prefer gbrain
 over Grep when the question is semantic or when you don't know the exact
 identifier yet.
 
-**This worktree is pinned to a worktree-scoped code source** via the
-`.gbrain-source` file in the repo root (kubectl-style context). Any
-`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, or `query`
-call from anywhere under this worktree routes to that source by default —
-no `--source` flag needed. Conductor sibling worktrees of the same repo
-each have their own pin and their own indexed pages, so semantic results
-match the actual code on disk in this worktree.
+This machine uses the mini-hosted remote MCP, not a local worktree-scoped
+`gbrain` CLI index. Claude Code and Codex connect to:
+`https://chips-mac-mini.tailcc9190.ts.net:3131/mcp`
 
-Two indexed corpora available via the `gbrain` CLI:
-- This worktree's code (auto-pinned via `.gbrain-source`).
-- `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
-  the existing federation pipeline).
+Indexed remote sources:
+- `dac-wiki` — 10,538 pages.
+- `dev-wiki` — 398 pages.
+- `sessions-wiki` — 30 pages.
+
+The current index is structural/BM25 only. Embedding backfill is pending
+because OpenAI returned quota-exceeded during setup; do not claim semantic
+vector coverage until `get_stats.embedded_count` is nonzero.
 
 Prefer gbrain when:
 - "Where is X handled?" / semantic intent, no exact string yet:
-    `gbrain search "<terms>"` or `gbrain query "<question>"`
-- "Where is symbol Y defined?" / symbol-based code questions:
-    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
-- "What calls Y?" / "What does Y depend on?":
-    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
+    use the remote MCP `search` or `query` tool.
 - "What did we decide last time?" / past plans, retros, learnings:
-    `gbrain search "<terms>" --source gstack-brain-<user>`
+    search the federated wiki sources through the remote MCP.
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
-auto-sync across all worktrees, run `gbrain autopilot --install` once per
-machine — gbrain's daemon handles incremental refresh on a schedule.
+file globs. Code-symbol tools require a local code index; this setup does not
+yet provide laptop-local `code-def`, `code-refs`, `code-callers`, or
+`code-callees` coverage for the current worktree.
 
 <!-- gstack-gbrain-search-guidance:end -->
