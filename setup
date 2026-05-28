@@ -580,11 +580,47 @@ cleanup_prefixed_claude_symlinks() {
 # ─── Helper: link generated Codex skills into a skills parent directory ──
 # Installs from .agents/skills/gstack-* (the generated Codex-format skills)
 # instead of source dirs (which have Claude paths).
+cleanup_stale_codex_skill_dirs() {
+  local skills_dir="$1"
+  shift
+  local valid_names=("$@")
+
+  for target in "$skills_dir"/gstack-*; do
+    [ -e "$target" ] || [ -L "$target" ] || continue
+
+    local skill_name
+    skill_name="$(basename "$target")"
+    local is_current=0
+    for valid_name in "${valid_names[@]}"; do
+      if [ "$skill_name" = "$valid_name" ]; then
+        is_current=1
+        break
+      fi
+    done
+    [ "$is_current" -eq 1 ] && continue
+
+    if [ -L "$target" ]; then
+      local link_target
+      link_target="$(readlink "$target" 2>/dev/null || true)"
+      case "$link_target" in
+        */.agents/skills/"$skill_name"|*/.agents/skills/"$skill_name"/)
+          rm -f "$target"
+          ;;
+      esac
+    elif [ -d "$target" ] && [ -f "$target/SKILL.md" ]; then
+      if grep -q 'AUTO-GENERATED from SKILL.md.tmpl' "$target/SKILL.md" 2>/dev/null; then
+        rm -rf "$target"
+      fi
+    fi
+  done
+}
+
 link_codex_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local agents_dir="$gstack_dir/.agents/skills"
   local linked=()
+  local current_skill_names=()
 
   if [ ! -d "$agents_dir" ]; then
     echo "  Generating .agents/ skill docs..."
@@ -595,6 +631,19 @@ link_codex_skill_dirs() {
     echo "  warning: .agents/skills/ generation failed — run 'bun run gen:skill-docs --host codex' manually" >&2
     return 1
   fi
+
+  for skill_dir in "$agents_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      # Skip the sidecar directory — it contains runtime asset symlinks (bin/,
+      # browse/), not a skill. Linking it would overwrite the root gstack
+      # symlink that Step 5 already pointed at the repo root.
+      [ "$skill_name" = "gstack" ] && continue
+      current_skill_names+=("$skill_name")
+    fi
+  done
+
+  cleanup_stale_codex_skill_dirs "$skills_dir" "${current_skill_names[@]}"
 
   for skill_dir in "$agents_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then

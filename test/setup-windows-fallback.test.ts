@@ -17,6 +17,14 @@ function extractHelper(): string {
   return SETUP_SRC.slice(start, end + 2);
 }
 
+function extractShellFunction(name: string): string {
+  const start = SETUP_SRC.indexOf(`${name}() {`);
+  if (start < 0) throw new Error(`Could not locate ${name}() in setup`);
+  const end = SETUP_SRC.indexOf('\n}\n', start);
+  if (end >= 0) return SETUP_SRC.slice(start, end + 2);
+  throw new Error(`Could not extract ${name}() from setup`);
+}
+
 describe('setup: _link_or_copy invariant (D7)', () => {
   test('helper function is defined near the top of setup', () => {
     expect(SETUP_SRC).toContain('_link_or_copy() {');
@@ -54,6 +62,11 @@ describe('setup: _link_or_copy invariant (D7)', () => {
     const fnEnd = SETUP_SRC.indexOf('\n}\n', fnStart);
     const fnBody = SETUP_SRC.slice(fnStart, fnEnd);
     expect(fnBody).toContain('_print_windows_copy_note_once');
+  });
+
+  test('link_codex_skill_dirs prunes stale generated gstack symlinks', () => {
+    const linkCodex = extractShellFunction('link_codex_skill_dirs');
+    expect(linkCodex).toContain('cleanup_stale_codex_skill_dirs "$skills_dir"');
   });
 });
 
@@ -124,5 +137,33 @@ describe.skipIf(process.platform === 'win32')('setup: _link_or_copy helper — b
     expect(r.ok).toBe(true);
     expect(r.targetExists).toBe(true);
     expect(r.targetIsSymlink).toBe(false);
+  });
+
+  test('Codex link cleanup removes stale generated gstack symlinks only', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-cleanup-'));
+    try {
+      const skillsDir = path.join(tmp, 'skills');
+      const oldRoot = path.join(tmp, 'old-gstack');
+      const staleGenerated = path.join(oldRoot, '.agents', 'skills', 'gstack-ios-qa');
+      const external = path.join(tmp, 'external', 'gstack-custom');
+      fs.mkdirSync(skillsDir, { recursive: true });
+      fs.mkdirSync(staleGenerated, { recursive: true });
+      fs.mkdirSync(external, { recursive: true });
+      fs.symlinkSync(staleGenerated, path.join(skillsDir, 'gstack-ios-qa'));
+      fs.symlinkSync(external, path.join(skillsDir, 'gstack-custom'));
+
+      const cleanup = extractShellFunction('cleanup_stale_codex_skill_dirs');
+      const script = `${cleanup}\ncleanup_stale_codex_skill_dirs "${skillsDir}" gstack-qa gstack-design-review\n`;
+      const result = spawnSync('bash', ['-c', script], {
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(skillsDir, 'gstack-ios-qa'))).toBe(false);
+      expect(fs.lstatSync(path.join(skillsDir, 'gstack-custom')).isSymbolicLink()).toBe(true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
