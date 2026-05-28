@@ -851,6 +851,13 @@ Indexed remote sources:
 - `dev-wiki` — 398 pages.
 - `sessions-wiki` — 30 pages.
 
+Freshness: the laptop wiki pipelines run nightly, and
+`~/.agent-config/scripts/gbrain-wiki-nightly-sync.sh` is installed as
+`com.dalecarman.gbrain-wiki-nightly-sync` to refresh the mini index after those
+jobs finish. Check `~/Library/Logs/gbrain-wiki-nightly-sync.log` and
+`scripts/gbrain-wiki-nightly-sync.sh --status` from `~/.agent-config` if GBrain
+looks stale.
+
 The current index is structural/BM25 only. Embedding backfill is pending
 because OpenAI returned quota-exceeded during setup; do not claim semantic
 vector coverage until `get_stats.embedded_count` is nonzero.
