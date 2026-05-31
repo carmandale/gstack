@@ -361,6 +361,50 @@ Watermark advances past the offending commit. The same file fails again if it ch
 
 Another gstack session in a sibling Conductor workspace may be holding a lock on your local PGLite file via its preamble's `gstack-brain-sync` call. Close other workspaces, re-run `/setup-gbrain --switch`. The timeout is bounded at 180s so you'll never actually wait forever.
 
+### `command -v gbrain` finds nothing (remote / split-engine setups)
+
+In Path 4 (remote gbrain MCP), gbrain runs on **another machine** and you reach it over MCP — there is **no local `gbrain` CLI by design**. `command -v gbrain` returning nothing is expected, not a failed install. Verify the brain instead via MCP:
+
+```bash
+claude mcp list | grep gbrain        # expect: ... ✓ Connected
+codex mcp get gbrain                 # Codex
+```
+
+Then check `get_stats` / `get_health` over the MCP. Don't use a local-CLI presence test as the install gate in remote setups.
+
+### `embedded_count: 0` on a launchd/remote brain even though your key works
+
+**Problem.** `get_stats` shows `embedded_count: 0` (semantic search dark, keyword/structural fine) on a machine where the gbrain HTTP service runs under launchd (e.g. `com.<you>.gbrain-http`), yet `OPENAI_API_KEY` is set in your shell and a manual `curl` to the embeddings API succeeds.
+
+**Cause.** A launchd service does **not** inherit your login shell's environment. The `gbrain embed` path reads `OPENAI_API_KEY` from the *service process* env. A key in `~/.zshrc` / `~/.secrets` / `~/.zshenv` is invisible to the launchd-spawned `gbrain serve`. (`~/.gbrain/config.json` holds `embedding_model` but not the key — gbrain reads the key from env.)
+
+**Fix.** Put the key in the launchd plist's `EnvironmentVariables`, `chmod 600` the plist (it now holds a secret), and reload:
+
+```bash
+PLIST=~/Library/LaunchAgents/com.<you>.gbrain-http.plist
+/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:OPENAI_API_KEY string sk-..." "$PLIST"   # or edit via plistlib
+launchctl bootout  gui/$(id -u)/com.<you>.gbrain-http 2>/dev/null
+launchctl bootstrap gui/$(id -u) "$PLIST"
+```
+
+Verify: `launchctl print gui/$(id -u)/com.<you>.gbrain-http` shows the env key, and `get_stats` rises after a backfill. To avoid OpenAI entirely, switch `embedding_model` to a local provider — gbrain supports 16 (Ollama / llama.cpp local, Voyage, Gemini, …); see `docs/integrations/embedding-providers.md`.
+
+### "Timed out waiting for PGLite lock" running `gbrain embed` / any CLI op
+
+**Problem.** Any gbrain CLI DB command — even `gbrain embed --help` — hangs and reports `Timed out waiting for PGLite lock` on a machine that's running the gbrain HTTP service.
+
+**Cause.** PGLite is **single-writer**. The running `gbrain serve` process holds the database; a second gbrain process can't open it concurrently.
+
+**Fix.** To backfill/re-embed the existing catalog you must release the lock — stop the service, run the CLI op, restart:
+
+```bash
+launchctl bootout gui/$(id -u)/com.<you>.gbrain-http
+OPENAI_API_KEY="$KEY" gbrain embed --stale     # --stale is resumable; --all forces full re-embed
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.<you>.gbrain-http.plist
+```
+
+The brain is offline only during the embed (a few minutes for ~10k pages). Wrap it with a trap that re-bootstraps the service on exit so a failed embed never leaves the brain down.
+
 ## Why this design
 
 **Why per-remote trust triad and not binary allow/deny?** Multi-client consultants need search without write-back. A freelance dev working on Client A in the morning and Client B in the afternoon can't let A's code insights leak into a brain Client B can search. Read-only solves that cleanly.
