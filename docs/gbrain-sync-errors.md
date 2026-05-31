@@ -212,3 +212,56 @@ gstack-brain-sync --discover-new
 gstack-brain-sync --once
 ```
 to force a drain.
+
+---
+
+## `Timed out waiting for PGLite lock` (running `gbrain embed` / any CLI op)
+
+**Problem.** Any gbrain CLI command that touches the database — even
+`gbrain embed --help` — hangs and prints `Timed out waiting for PGLite lock`
+on a machine that's running the gbrain HTTP service.
+
+**Cause.** PGLite is **single-writer**. The running `gbrain serve` process
+holds the database file; a second gbrain process can't open it concurrently.
+
+**Fix.** Release the lock by stopping the service, run the CLI op, then restart.
+For a launchd service:
+```bash
+LABEL=com.<you>.gbrain-http
+launchctl bootout  gui/$(id -u)/$LABEL
+OPENAI_API_KEY="$KEY" gbrain embed --stale          # --stale is resumable; --all forces full re-embed
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$LABEL.plist
+```
+The brain is offline only during the embed (a few minutes for ~10k pages).
+Wrap it in a `trap '… ensure_up' EXIT HUP TERM` that re-bootstraps the service,
+so a failed embed never leaves the brain down.
+
+---
+
+## `embedded_count: 0` — semantic search dark on a launchd / remote brain
+
+**Problem.** `get_stats` reports `embedded_count: 0` (keyword/structural search
+works, vector/semantic returns nothing) on a machine where gbrain runs under
+launchd, even though `OPENAI_API_KEY` is set in your shell and a manual `curl`
+to the embeddings API succeeds.
+
+**Cause.** A launchd service does **not** inherit your login shell's
+environment. The embed path reads `OPENAI_API_KEY` from the *service process*
+env, so a key in `~/.zshrc` / `~/.zshenv` / `~/.secrets` never reaches the
+launchd-spawned `gbrain serve`. (`~/.gbrain/config.json` holds `embedding_model`
+but not the key — gbrain reads the key from env.)
+
+**Fix.** Put the key in the launchd plist's `EnvironmentVariables`, `chmod 600`
+the plist (it now holds a secret), and reload:
+```bash
+PLIST=~/Library/LaunchAgents/com.<you>.gbrain-http.plist
+/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:OPENAI_API_KEY string sk-..." "$PLIST"
+launchctl bootout  gui/$(id -u)/com.<you>.gbrain-http 2>/dev/null
+launchctl bootstrap gui/$(id -u) "$PLIST"
+```
+Verify with `launchctl print gui/$(id -u)/com.<you>.gbrain-http` (env shows the
+key) then backfill per the PGLite-lock entry above; `get_stats` should rise to
+match `chunk_count`. To avoid OpenAI fees entirely, switch `embedding_model` to
+a local provider — gbrain supports 16 (Ollama / llama.cpp local, Voyage,
+Gemini, …); see `docs/integrations/embedding-providers.md`. Full walkthrough in
+`USING_GBRAIN_WITH_GSTACK.md` → Troubleshooting.
