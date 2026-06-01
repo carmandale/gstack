@@ -1,5 +1,5 @@
 ---
-name: design-review
+name: gstack-design-review
 preamble-tier: 4
 version: 2.0.0
 description: "Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them. (gstack)"
@@ -728,7 +728,20 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
+## Brain Context Load
 
+Use any available GBrain surface; do not conclude GBrain is absent from
+`command -v gbrain` alone. Remote MCP-only setups are valid.
+
+Extract 2-4 keywords from the user's request. Search the brain:
+- If the local CLI exists: `gbrain search "<keywords>"`, then read the top
+  3 results with `gbrain get_page "<slug>"`.
+- If only the GBrain MCP is connected: use the available `mcp__gbrain__*`
+  search/query/read tools for the same search + top-result read flow.
+
+If neither surface is available, the search returns no results, or a call
+fails, proceed without brain context. Full search/read protocol + examples:
+see `docs/gbrain-write-surfaces.md` §Context Load.
 
 # /design-review: Design Audit → Fix → Verify
 
@@ -1909,7 +1922,16 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
+## Save Results to Brain
 
+Use any available GBrain surface; local CLI and remote MCP-only setups are
+both valid.
+
+If the skill output is worth preserving, save it via the local CLI
+`gbrain put "<slug>" --content "<frontmatter + markdown>"`, or the
+equivalent connected GBrain MCP page-write tool. Full template (heredoc body,
+frontmatter shape, entity-stub instructions, throttle handling): see
+`docs/gbrain-write-surfaces.md` §Save Template.
 
 ## Additional Rules (design-review specific)
 

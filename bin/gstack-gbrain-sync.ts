@@ -82,6 +82,15 @@ const GSTACK_HOME = process.env.GSTACK_HOME || join(HOME, ".gstack");
 const STATE_PATH = join(GSTACK_HOME, ".gbrain-sync-state.json");
 const LOCK_PATH = join(GSTACK_HOME, ".sync-gbrain.lock");
 const STALE_LOCK_MS = 5 * 60 * 1000;
+const CURATED_MEMORY_SOURCES = [
+  "eureka",
+  "learning",
+  "timeline",
+  "ceo-plan",
+  "design-doc",
+  "retro",
+  "builder-profile-entry",
+];
 
 // Default 35-minute timeout for code-walk + memory-ingest stages. Override via
 // GSTACK_SYNC_CODE_TIMEOUT_MS / GSTACK_SYNC_MEMORY_TIMEOUT_MS. Bounds-checked
@@ -275,6 +284,37 @@ function originUrl(): string | null {
   } catch {
     return null;
   }
+}
+
+function readConfigValue(key: string): string {
+  const configPath = join(GSTACK_HOME, "config.yaml");
+  try {
+    const raw = readFileSync(configPath, "utf-8");
+    const line = raw
+      .split("\n")
+      .reverse()
+      .find((l) => l.startsWith(`${key}:`));
+    if (!line) return "";
+    return line.slice(key.length + 1).trim().split(/\s+/)[0] || "";
+  } catch {
+    return "";
+  }
+}
+
+function transcriptIngestEnabled(): boolean {
+  return readConfigValue("transcript_ingest_mode") === "incremental";
+}
+
+function memorySourceArgs(): string[] {
+  return transcriptIngestEnabled()
+    ? []
+    : ["--sources", CURATED_MEMORY_SOURCES.join(",")];
+}
+
+function memorySourceSummarySuffix(): string {
+  return transcriptIngestEnabled()
+    ? " (transcripts enabled)"
+    : " (transcripts disabled by transcript_ingest_mode=off)";
 }
 
 /**
@@ -953,7 +993,14 @@ function runMemoryIngest(args: CliArgs): StageResult {
   const t0 = Date.now();
 
   if (args.mode === "dry-run") {
-    return { name: "memory", ran: false, ok: true, duration_ms: 0, summary: "would: gstack-memory-ingest --probe" };
+    const cmd = ["gstack-memory-ingest", "--probe", ...memorySourceArgs()].join(" ");
+    return {
+      name: "memory",
+      ran: false,
+      ok: true,
+      duration_ms: 0,
+      summary: `would: ${cmd}${memorySourceSummarySuffix()}`,
+    };
   }
 
   // Split-engine pre-flight (per plan D12). In local-stdio mode,
@@ -990,6 +1037,7 @@ function runMemoryIngest(args: CliArgs): StageResult {
   const ingestArgs = ["run", ingestPath];
   if (args.mode === "full") ingestArgs.push("--bulk");
   else ingestArgs.push("--incremental");
+  ingestArgs.push(...memorySourceArgs());
   if (args.quiet) ingestArgs.push("--quiet");
 
   // Thread the seeded env into the bun grandchild (codex review #7 — the

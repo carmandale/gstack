@@ -107,4 +107,25 @@ describe('docs ↔ gstack-config key drift guard', () => {
       fs.rmSync(tmpHome, { recursive: true, force: true });
     }
   });
+
+  test.skipIf(process.platform === 'win32')('`transcript_ingest_mode` is exposed as a documented default', () => {
+    const tmpHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gstack-cfg-'));
+    try {
+      const get = runConfig(['get', 'transcript_ingest_mode'], tmpHome);
+      expect(get.status).toBe(0);
+      expect(get.stdout.trim()).toBe('off');
+
+      const defaults = runConfig(['defaults'], tmpHome);
+      expect(defaults.status).toBe(0);
+      expect(defaults.stdout).toContain('transcript_ingest_mode:');
+      expect(defaults.stdout).toContain('off');
+
+      const list = runConfig(['list'], tmpHome);
+      expect(list.status).toBe(0);
+      expect(list.stdout).toContain('transcript_ingest_mode:');
+      expect(list.stdout).toContain('off');
+    } finally {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
 });

@@ -12,6 +12,12 @@
   `OPENAI_API_KEY` in the service environment.
 - `gstack-memory-ingest` now turns the PGLite single-writer timeout into a
   clear stop-service/backfill/restart runbook instead of a bare lock error.
+- `/sync-gbrain` now honors `transcript_ingest_mode`: curated GStack memory
+  still syncs when raw transcript ingest is off, and Claude/Codex transcripts
+  are included only after the user opts into incremental transcript ingest.
+- Brain-aware generated skills now treat remote MCP GBrain as valid even when
+  no local `gbrain` CLI exists, so split-engine setups do not lose context
+  load/save instructions.
 
 ## [1.55.0.0] - 2026-05-30
 

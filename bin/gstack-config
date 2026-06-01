@@ -75,6 +75,18 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
+# ─── Memory ingest ───────────────────────────────────────────────────
+# transcript_ingest_mode: off
+#                           # off | incremental
+#                           #   off         — do not ingest raw agent transcripts
+#                           #                 (default; curated gstack memory still works)
+#                           #   incremental — allow /sync-gbrain to include Claude/Codex
+#                           #                 transcripts using the requested sync mode
+#
+# gbrain_context_load: on   # on | off
+#                           #   on  — let brain-aware skills retrieve prior context
+#                           #   off — skip brain context retrieval entirely
+#
 # ─── Plan-tune hooks ─────────────────────────────────────────────────
 # plan_tune_hooks: prompt   # Controls whether ./setup installs the plan-tune
 #                           #   Claude Code hooks (PostToolUse capture +
@@ -120,6 +132,8 @@ lookup_default() {
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
+    transcript_ingest_mode) echo "off" ;;
+    gbrain_context_load) echo "on" ;;
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
@@ -287,6 +301,14 @@ case "${1:-}" in
       echo "Warning: artifacts_sync_mode '$VALUE' not recognized. Valid values: off, artifacts-only, full. Using off." >&2
       VALUE="off"
     fi
+    if [ "$KEY" = "transcript_ingest_mode" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "incremental" ]; then
+      echo "Warning: transcript_ingest_mode '$VALUE' not recognized. Valid values: off, incremental. Using off." >&2
+      VALUE="off"
+    fi
+    if [ "$KEY" = "gbrain_context_load" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Warning: gbrain_context_load '$VALUE' not recognized. Valid values: on, off. Using on." >&2
+      VALUE="on"
+    fi
     # redact_repo_visibility: a LOCAL override for repos gh/glab can't read (e.g.
     # self-hosted GitLab). It lives in ~/.gstack/config.yaml (never committed), so
     # it can't be used to weaken the gate repo-wide for other contributors.
@@ -331,7 +353,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted \
+               transcript_ingest_mode gbrain_context_load plan_tune_hooks; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -347,7 +370,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted \
+               transcript_ingest_mode gbrain_context_load plan_tune_hooks; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
@@ -386,21 +410,31 @@ case "${1:-}" in
     PYTHON_CMD=$(command -v python3 || command -v python || true)
     if [ -n "$PYTHON_CMD" ]; then
       STATUS=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_local_status','unknown'))" 2>/dev/null || echo unknown)
+      EFFECTIVE_STATUS=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_effective_status') or d.get('gbrain_local_status','unknown'))" 2>/dev/null || echo unknown)
+      MCP_MODE=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_mcp_mode') or 'none')" 2>/dev/null || echo none)
       VERSION=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_version') or 'unknown')" 2>/dev/null || echo unknown)
     else
       STATUS=$(grep -o '"gbrain_local_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
+      EFFECTIVE_STATUS=$(grep -o '"gbrain_effective_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
+      MCP_MODE=$(grep -o '"gbrain_mcp_mode":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
       VERSION=$(grep -o '"gbrain_version":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
       [ -z "$STATUS" ] && STATUS=unknown
+      [ -z "$EFFECTIVE_STATUS" ] && EFFECTIVE_STATUS="$STATUS"
+      [ -z "$MCP_MODE" ] && MCP_MODE=none
       [ -z "$VERSION" ] && VERSION=unknown
     fi
 
-    case "$STATUS" in
+    case "$EFFECTIVE_STATUS" in
       ok)
-        echo "Detected gbrain v$VERSION → brain-aware blocks will render in planning-skill SKILL.md files."
-        echo "Run 'bun run gen:skill-docs' in the gstack repo (or re-run ./setup) to regenerate now."
+        if [ "$STATUS" = "ok" ]; then
+          echo "Detected local gbrain v$VERSION → brain-aware blocks will render in planning-skill SKILL.md files."
+        else
+          echo "Detected GBrain via $MCP_MODE (local-status: $STATUS) → brain-aware blocks will render in planning-skill SKILL.md files."
+        fi
+        echo "Run 'bun run gen:skill-docs:user' in the gstack repo (or re-run ./setup) to regenerate now."
         ;;
       *)
-        echo "gbrain not detected (local-status: $STATUS) → brain-aware blocks will be suppressed in planning-skill SKILL.md files."
+        echo "gbrain not detected (effective-status: $EFFECTIVE_STATUS, local-status: $STATUS) → brain-aware blocks will be suppressed in planning-skill SKILL.md files."
         echo "Install gbrain (see /setup-gbrain) and re-run 'gstack-config gbrain-refresh' once it's configured."
         ;;
     esac

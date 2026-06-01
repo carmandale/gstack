@@ -1,5 +1,5 @@
 ---
-name: cso
+name: gstack-cso
 preamble-tier: 2
 version: 2.0.0
 description: Chief Security Officer mode. (gstack)
@@ -712,7 +712,20 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
+## Brain Context Load
 
+Use any available GBrain surface; do not conclude GBrain is absent from
+`command -v gbrain` alone. Remote MCP-only setups are valid.
+
+Extract 2-4 keywords from the user's request. Search the brain:
+- If the local CLI exists: `gbrain search "<keywords>"`, then read the top
+  3 results with `gbrain get_page "<slug>"`.
+- If only the GBrain MCP is connected: use the available `mcp__gbrain__*`
+  search/query/read tools for the same search + top-result read flow.
+
+If neither surface is available, the search returns no results, or a call
+fails, proceed without brain context. Full search/read protocol + examples:
+see `docs/gbrain-write-surfaces.md` §Context Load.
 
 # /cso — Chief Security Officer Audit (v2)
 
@@ -1420,7 +1433,32 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
+## Save Results to Brain
 
+Use any available GBrain surface; local CLI and remote MCP-only setups are
+both valid.
+
+After completing this skill, save the output with the local CLI:
+
+```bash
+gbrain put "security-audits/<feature-slug>" --content "$(cat <<'EOF'
+---
+title: "Security Audit: <feature name>"
+tags: [security-audit, <feature-slug>]
+---
+<skill output in markdown>
+EOF
+)"
+```
+
+If only remote MCP is connected, use the equivalent `mcp__gbrain__*`
+page-write tool with the same slug and frontmatter.
+
+Then extract person/org entities and create stub pages for each one.
+Throttle errors (exit 1 with "throttle"/"rate limit"/"busy") and any
+other non-zero exit are transient — don't retry inline. Full entity-stub
+template, throttle handling, and backlink protocol:
+see `docs/gbrain-write-surfaces.md` §Save Template.
 
 ## Important Rules
 

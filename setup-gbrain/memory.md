@@ -20,6 +20,19 @@ happens after you say yes.
 | Retros | `retro` | `~/.gstack/projects/<slug>/retros/*.md` | Medium |
 | Builder profile | `builder-profile-entry` | `~/.gstack/builder-profile.jsonl` | Low |
 
+## CASS is optional
+
+GStack does not require CASS (`coding_agent_session_search`) for normal
+workflow memory. The built-in ingest path reads Claude Code and Codex
+transcript files directly, and curated memory continues to work even when
+raw transcript ingest is disabled.
+
+Use CASS as an optional raw-session search/archive layer when it is healthy:
+it is useful for finding the exact old session, path, date, and snippet behind
+a memory. If CASS is broken or too stale, leave it out of the startup path and
+keep using GStack + GBrain. Nightly learning jobs can promote high-signal CASS
+findings later without making every agent session depend on CASS.
+
 ## What stays local
 
 - **State files** (`~/.gstack/.gbrain-sync-state.json`,
@@ -114,9 +127,13 @@ replaceable from disk on each Mac.
   helper). For V1.0, use `gbrain delete_page <slug>` per-page or write
   a small loop over `gbrain list_pages` output.
 
-- **Disable entirely:**
+- **Disable raw transcript ingest while keeping curated memory:**
   ```bash
   gstack-config set transcript_ingest_mode off
+  ```
+
+- **Disable brain context retrieval entirely:**
+  ```bash
   gstack-config set gbrain_context_load off  # also disables retrieval
   ```
 

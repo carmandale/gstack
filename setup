@@ -1339,11 +1339,14 @@ mkdir -p "$GBRAIN_STATE_DIR"
 if [ -x "$DETECT_BIN" ]; then
   if "$DETECT_BIN" > "$DETECTION_FILE.tmp" 2>/dev/null; then
     mv "$DETECTION_FILE.tmp" "$DETECTION_FILE"
-    if grep -q '"gbrain_local_status": "ok"' "$DETECTION_FILE" 2>/dev/null; then
-      log "gbrain detected — regenerating Claude SKILL.md with brain-aware blocks (~250 token overhead per planning skill)..."
+    if grep -q '"gbrain_local_status": "ok"' "$DETECTION_FILE" 2>/dev/null || \
+       grep -q '"gbrain_effective_status": "ok"' "$DETECTION_FILE" 2>/dev/null || \
+       grep -q '"gbrain_mcp_mode": "remote-http"' "$DETECTION_FILE" 2>/dev/null; then
+      log "gbrain detected — regenerating Claude + Codex SKILL.md with brain-aware blocks (~250 token overhead per planning skill)..."
       (
         cd "$SOURCE_GSTACK_DIR"
         bun_cmd run gen:skill-docs:user --host claude 2>&1 | tail -3
+        bun_cmd run gen:skill-docs:user --host codex 2>&1 | tail -3
       ) || log "  warning: gen:skill-docs:user failed — run 'bun run gen:skill-docs:user' manually if you want brain-aware blocks"
     else
       log "gbrain not detected — brain-aware blocks suppressed in planning-skill SKILL.md files (zero token overhead)."

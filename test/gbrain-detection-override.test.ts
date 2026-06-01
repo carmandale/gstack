@@ -122,10 +122,63 @@ describe('gbrain detection override → gen-skill-docs', () => {
       // GBRAIN_SAVE_RESULTS un-suppressed → resolver output rendered.
       expect(content).toContain('## Save Results to Brain');
       expect(content).toContain('gbrain put "office-hours/');
-      expect(content).toContain('Skip this entire section if `gbrain` is not on PATH');
+      expect(content).toContain('Use any available GBrain surface');
 
       // GBRAIN_CONTEXT_LOAD also un-suppressed (D6 bundling).
       expect(content).toContain('## Brain Context Load');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with remote MCP effective status ok, brain-aware blocks render without a local CLI', () => {
+    const { tmpHome, cleanup } = makeFixture(
+      JSON.stringify({
+        gbrain_local_status: 'no-cli',
+        gbrain_effective_status: 'ok',
+        gbrain_mcp_mode: 'remote-http',
+        gbrain_on_path: false,
+      }),
+    );
+    try {
+      const snap = regenAndSnapshot({
+        respectDetection: true,
+        tmpHome,
+        files: PROBE_FILES,
+      });
+      const content = snap.get('office-hours/SKILL.md')!;
+
+      expect(content).toContain('## Brain Context Load');
+      expect(content).toContain('Remote MCP-only setups are valid');
+      expect(content).toContain('## Save Results to Brain');
+      expect(content).toContain('remote MCP-only setups are');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with gbrain_context_load off, save still renders but context preflight stays suppressed', () => {
+    const { tmpHome, cleanup } = makeFixture(
+      JSON.stringify({
+        gbrain_local_status: 'no-cli',
+        gbrain_effective_status: 'ok',
+        gbrain_mcp_mode: 'remote-http',
+        gbrain_on_path: false,
+      }),
+    );
+    writeFileSync(join(tmpHome, 'config.yaml'), 'gbrain_context_load: off\n');
+    try {
+      const snap = regenAndSnapshot({
+        respectDetection: true,
+        tmpHome,
+        files: PROBE_FILES,
+      });
+      const content = snap.get('office-hours/SKILL.md')!;
+
+      expect(content).not.toContain('## Brain Context Load');
+      expect(content).not.toContain('## Brain Context (preflight)');
+      expect(content).toContain('## Save Results to Brain');
+      expect(content).toContain('remote MCP-only setups are');
     } finally {
       cleanup();
     }

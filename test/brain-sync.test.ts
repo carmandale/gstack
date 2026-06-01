@@ -34,7 +34,7 @@ function run(argv: string[], opts: { env?: Record<string, string>; input?: strin
   const bin = argv[0];
   const full = bin.startsWith('/') ? bin : path.join(BIN, bin);
   const res = spawnSync(full, argv.slice(1), {
-    env: { ...process.env, GSTACK_HOME: tmpHome, ...(opts.env || {}) },
+    env: { ...process.env, HOME: tmpHome, GSTACK_HOME: tmpHome, ...(opts.env || {}) },
     encoding: 'utf-8',
     input: opts.input,
     cwd: ROOT,
@@ -56,13 +56,6 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(tmpHome, { recursive: true, force: true });
   fs.rmSync(bareRemote, { recursive: true, force: true });
-  // Clean up any remote-helper file init may have written.
-  const remoteFile = path.join(os.homedir(), '.gstack-brain-remote.txt');
-  // Only remove if it points at OUR bare remote (don't clobber a real user file).
-  try {
-    const contents = fs.readFileSync(remoteFile, 'utf-8').trim();
-    if (contents === bareRemote) fs.unlinkSync(remoteFile);
-  } catch {}
 });
 
 // ---------------------------------------------------------------
@@ -93,6 +86,28 @@ describe('gstack-config gbrain keys', () => {
     const r = run(['gstack-config', 'set', 'artifacts_sync_mode', 'bogus']);
     expect(r.stderr).toContain('not recognized');
     const get = run(['gstack-config', 'get', 'artifacts_sync_mode']);
+    expect(get.stdout.trim()).toBe('off');
+  });
+
+  test('default transcript_ingest_mode is off', () => {
+    const r = run(['gstack-config', 'get', 'transcript_ingest_mode']);
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe('off');
+  });
+
+  test('accepts transcript_ingest_mode off / incremental', () => {
+    for (const val of ['off', 'incremental']) {
+      const set = run(['gstack-config', 'set', 'transcript_ingest_mode', val]);
+      expect(set.status).toBe(0);
+      const get = run(['gstack-config', 'get', 'transcript_ingest_mode']);
+      expect(get.stdout.trim()).toBe(val);
+    }
+  });
+
+  test('invalid transcript_ingest_mode value warns + defaults', () => {
+    const r = run(['gstack-config', 'set', 'transcript_ingest_mode', 'cass']);
+    expect(r.stderr).toContain('not recognized');
+    const get = run(['gstack-config', 'get', 'transcript_ingest_mode']);
     expect(get.stdout.trim()).toBe('off');
   });
 

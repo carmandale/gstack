@@ -94,6 +94,33 @@ describe("gstack-gbrain-sync CLI", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  it("memory dry-run excludes raw transcripts when transcript_ingest_mode is off", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    const r = runScript(["--dry-run", "--no-code", "--no-brain-sync"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("would: gstack-memory-ingest --probe --sources");
+    expect(r.stdout).toContain("eureka,learning,timeline,ceo-plan,design-doc,retro,builder-profile-entry");
+    expect(r.stdout).toContain("transcripts disabled by transcript_ingest_mode=off");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("memory dry-run includes transcripts when transcript_ingest_mode is incremental", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    writeFileSync(join(gstackHome, "config.yaml"), "transcript_ingest_mode: incremental\n");
+
+    const r = runScript(["--dry-run", "--no-code", "--no-brain-sync"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("would: gstack-memory-ingest --probe");
+    expect(r.stdout).not.toContain("--sources");
+    expect(r.stdout).toContain("transcripts enabled");
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("--no-code skips the code import stage", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");

@@ -55,14 +55,17 @@ const skillSaveMap: Record<string, SkillSaveMeta> = {
 export function generateGBrainContextLoad(ctx: TemplateContext): string {
   let base = `## Brain Context Load
 
-**Skip this entire section if \`gbrain\` is not on PATH.**
+Use any available GBrain surface; do not conclude GBrain is absent from
+\`command -v gbrain\` alone. Remote MCP-only setups are valid.
 
 Extract 2-4 keywords from the user's request. Search the brain:
-\`gbrain search "<keywords>"\`. Read the top 3 results with
-\`gbrain get_page "<slug>"\`. Use that context to inform your analysis.
+- If the local CLI exists: \`gbrain search "<keywords>"\`, then read the top
+  3 results with \`gbrain get_page "<slug>"\`.
+- If only the GBrain MCP is connected: use the available \`mcp__gbrain__*\`
+  search/query/read tools for the same search + top-result read flow.
 
-If \`gbrain search\` returns no results or any non-zero exit, proceed
-without brain context. Full search/read protocol + examples:
+If neither surface is available, the search returns no results, or a call
+fails, proceed without brain context. Full search/read protocol + examples:
 see \`docs/gbrain-write-surfaces.md\` §Context Load.`;
 
   if (ctx.skillName === 'investigate') {
@@ -85,19 +88,22 @@ export function generateGBrainSaveResults(ctx: TemplateContext): string {
   if (!meta) {
     return `## Save Results to Brain
 
-**Skip this entire section if \`gbrain\` is not on PATH.**
+Use any available GBrain surface; local CLI and remote MCP-only setups are
+both valid.
 
-If the skill output is worth preserving, save it via
-\`gbrain put "<slug>" --content "<frontmatter + markdown>"\`. Full template
-(heredoc body, frontmatter shape, entity-stub instructions, throttle
-handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
+If the skill output is worth preserving, save it via the local CLI
+\`gbrain put "<slug>" --content "<frontmatter + markdown>"\`, or the
+equivalent connected GBrain MCP page-write tool. Full template (heredoc body,
+frontmatter shape, entity-stub instructions, throttle handling): see
+\`docs/gbrain-write-surfaces.md\` §Save Template.`;
   }
 
   return `## Save Results to Brain
 
-**Skip this entire section if \`gbrain\` is not on PATH.**
+Use any available GBrain surface; local CLI and remote MCP-only setups are
+both valid.
 
-After completing this skill, save the output:
+After completing this skill, save the output with the local CLI:
 
 \`\`\`bash
 gbrain put "${meta.slugPrefix}/<feature-slug>" --content "$(cat <<'EOF'
@@ -109,6 +115,9 @@ tags: [${meta.tag}, <feature-slug>]
 EOF
 )"
 \`\`\`
+
+If only remote MCP is connected, use the equivalent \`mcp__gbrain__*\`
+page-write tool with the same slug and frontmatter.
 
 Then extract person/org entities and create stub pages for each one.
 Throttle errors (exit 1 with "throttle"/"rate limit"/"busy") and any

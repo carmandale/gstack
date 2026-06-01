@@ -1,5 +1,5 @@
 ---
-name: investigate
+name: gstack-investigate
 preamble-tier: 2
 version: 1.0.0
 description: Systematic debugging with root cause investigation. (gstack)
@@ -757,7 +757,22 @@ Fixing symptoms creates whack-a-mole debugging. Every fix that doesn't address r
 
 ---
 
+## Brain Context Load
 
+Use any available GBrain surface; do not conclude GBrain is absent from
+`command -v gbrain` alone. Remote MCP-only setups are valid.
+
+Extract 2-4 keywords from the user's request. Search the brain:
+- If the local CLI exists: `gbrain search "<keywords>"`, then read the top
+  3 results with `gbrain get_page "<slug>"`.
+- If only the GBrain MCP is connected: use the available `mcp__gbrain__*`
+  search/query/read tools for the same search + top-result read flow.
+
+If neither surface is available, the search returns no results, or a call
+fails, proceed without brain context. Full search/read protocol + examples:
+see `docs/gbrain-write-surfaces.md` §Context Load.
+
+For structured-data extraction requests ("track this", "extract from emails", "build a tracker"), route to GBrain's data-research skill instead: `gbrain call data-research`.
 
 ## Phase 1: Root Cause Investigation
 
@@ -986,7 +1001,32 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
+## Save Results to Brain
 
+Use any available GBrain surface; local CLI and remote MCP-only setups are
+both valid.
+
+After completing this skill, save the output with the local CLI:
+
+```bash
+gbrain put "investigations/<feature-slug>" --content "$(cat <<'EOF'
+---
+title: "Investigation: <feature name>"
+tags: [investigation, <feature-slug>]
+---
+<skill output in markdown>
+EOF
+)"
+```
+
+If only remote MCP is connected, use the equivalent `mcp__gbrain__*`
+page-write tool with the same slug and frontmatter.
+
+Then extract person/org entities and create stub pages for each one.
+Throttle errors (exit 1 with "throttle"/"rate limit"/"busy") and any
+other non-zero exit are transient — don't retry inline. Full entity-stub
+template, throttle handling, and backlink protocol:
+see `docs/gbrain-write-surfaces.md` §Save Template.
 
 ---
 

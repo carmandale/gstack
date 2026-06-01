@@ -1,5 +1,5 @@
 ---
-name: qa
+name: gstack-qa
 preamble-tier: 4
 version: 2.0.0
 description: Systematically QA test a web application and fix bugs found. (gstack)
@@ -771,7 +771,20 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
+## Brain Context Load
 
+Use any available GBrain surface; do not conclude GBrain is absent from
+`command -v gbrain` alone. Remote MCP-only setups are valid.
+
+Extract 2-4 keywords from the user's request. Search the brain:
+- If the local CLI exists: `gbrain search "<keywords>"`, then read the top
+  3 results with `gbrain get_page "<slug>"`.
+- If only the GBrain MCP is connected: use the available `mcp__gbrain__*`
+  search/query/read tools for the same search + top-result read flow.
+
+If neither surface is available, the search returns no results, or a call
+fails, proceed without brain context. Full search/read protocol + examples:
+see `docs/gbrain-write-surfaces.md` §Context Load.
 
 # /qa: Test → Fix → Verify
 
@@ -1601,7 +1614,16 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
+## Save Results to Brain
 
+Use any available GBrain surface; local CLI and remote MCP-only setups are
+both valid.
+
+If the skill output is worth preserving, save it via the local CLI
+`gbrain put "<slug>" --content "<frontmatter + markdown>"`, or the
+equivalent connected GBrain MCP page-write tool. Full template (heredoc body,
+frontmatter shape, entity-stub instructions, throttle handling): see
+`docs/gbrain-write-surfaces.md` §Save Template.
 
 ## Additional Rules (qa-specific)
 

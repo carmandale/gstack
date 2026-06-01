@@ -1,5 +1,5 @@
 ---
-name: ios-fix
+name: gstack-ios-fix
 preamble-tier: 3
 version: 1.0.0
 description: Autonomous iOS bug fixer. (gstack)

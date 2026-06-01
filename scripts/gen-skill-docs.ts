@@ -32,7 +32,8 @@ const DRY_RUN = process.argv.includes('--dry-run');
 // statically suppress them (claude, codex, slate, factory, opencode,
 // openclaw, cursor, kiro). Detection state is produced by
 // bin/gstack-gbrain-detect and persisted by `gstack-config gbrain-refresh`
-// or by ./setup.
+// or by ./setup. Remote MCP brains count as detected even when no local
+// `gbrain` CLI is installed.
 //
 // Default (no flag): static suppressedResolvers honored as-is. Used by
 // `bun run gen:skill-docs` (CI + canonical checked-in SKILL.md files) so
@@ -41,15 +42,40 @@ const DRY_RUN = process.argv.includes('--dry-run');
 // (which adds --respect-detection) for user-local installs.
 const RESPECT_DETECTION = process.argv.includes('--respect-detection');
 
-function loadGbrainOverride(): { detected: boolean } {
-  if (!RESPECT_DETECTION) return { detected: false };
+function readGstackConfigValue(stateDir: string, key: string): string {
+  try {
+    const raw = fs.readFileSync(path.join(stateDir, 'config.yaml'), 'utf-8');
+    const line = raw
+      .split('\n')
+      .reverse()
+      .find(l => l.startsWith(`${key}:`));
+    if (!line) return '';
+    return line.slice(key.length + 1).trim().split(/\s+/)[0] || '';
+  } catch {
+    return '';
+  }
+}
+
+function loadGbrainOverride(): { detected: boolean; contextLoad: boolean } {
+  if (!RESPECT_DETECTION) return { detected: false, contextLoad: true };
   const stateDir = process.env.GSTACK_HOME || path.join(process.env.HOME || '', '.gstack');
+  const contextLoad = readGstackConfigValue(stateDir, 'gbrain_context_load') !== 'off';
   const detectionPath = path.join(stateDir, 'gbrain-detection.json');
   try {
-    const json = JSON.parse(fs.readFileSync(detectionPath, 'utf-8')) as { gbrain_local_status?: string };
-    return { detected: json.gbrain_local_status === 'ok' };
+    const json = JSON.parse(fs.readFileSync(detectionPath, 'utf-8')) as {
+      gbrain_local_status?: string;
+      gbrain_effective_status?: string;
+      gbrain_mcp_mode?: string;
+    };
+    return {
+      detected:
+        json.gbrain_local_status === 'ok' ||
+        json.gbrain_effective_status === 'ok' ||
+        json.gbrain_mcp_mode === 'remote-http',
+      contextLoad,
+    };
   } catch {
-    return { detected: false };
+    return { detected: false, contextLoad };
   }
 }
 
@@ -64,9 +90,18 @@ const GBRAIN_OVERRIDE = loadGbrainOverride();
 function effectiveSuppressedResolvers(hostConfig: HostConfig): Set<string> {
   let list = hostConfig.suppressedResolvers || [];
   if (GBRAIN_OVERRIDE.detected) {
-    list = list.filter(r => r !== 'GBRAIN_CONTEXT_LOAD' && r !== 'GBRAIN_SAVE_RESULTS');
+    list = list.filter(r => {
+      if (r === 'GBRAIN_SAVE_RESULTS') return false;
+      if (r === 'GBRAIN_CONTEXT_LOAD') return !GBRAIN_OVERRIDE.contextLoad;
+      return true;
+    });
   }
-  return new Set(list);
+  const suppressed = new Set(list);
+  if (!GBRAIN_OVERRIDE.contextLoad) {
+    suppressed.add('GBRAIN_CONTEXT_LOAD');
+    suppressed.add('BRAIN_PREFLIGHT');
+  }
+  return suppressed;
 }
 
 // ─── Host Detection (config-driven) ─────────────────────────
@@ -280,7 +315,7 @@ export function splitCatalogDescription(description: string): CatalogParts {
   let working = voiceLine ? description.replace(voiceLine, '').trim() : description.trim();
 
   const hasGstackTag = /\(gstack\)/.test(working);
-  if (hasGstackTag) working = working.replace(/\(gstack\)/, '').trim();
+  if (hasGstackTag) working = working.replace(/[^\S\r\n]*\(gstack\)[^\S\r\n]*/, '').trim();
 
   // Lead = first sentence (up to first period followed by space or end of string).
   // We tolerate sentences with embedded periods (URLs, "v1.45.0.0") by requiring

@@ -45,6 +45,19 @@ describe('splitCatalogDescription', () => {
     expect(parts.routingProse).not.toContain('(gstack)');
   });
 
+  test('strips the gstack tag without leaving trailing whitespace in routing prose', () => {
+    const desc =
+      'Question tuning. Use when asked to "tune questions", "show my vibe",\n' +
+      '"developer profile", or "turn off question tuning". (gstack)\n\n' +
+      'Proactively suggest when the same question repeats.';
+
+    const parts = splitCatalogDescription(desc);
+    const section = buildWhenToInvokeSection(parts);
+
+    expect(section).toContain('"developer profile", or "turn off question tuning".\n');
+    expect(section).not.toContain('question tuning". \n');
+  });
+
   test('REGRESSION (design-consultation v1.45.0.0): >200 char first sentence keeps routing', () => {
     // This is the exact shape that broke. First sentence (with embedded periods)
     // is 207 chars. Original bug: routing extraction ran AFTER lead truncation,
