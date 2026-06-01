@@ -13,6 +13,13 @@ function mkTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-team-test-'));
 }
 
+function mkIsolatedSetupEnv(homeDir: string): Record<string, string> {
+  return {
+    HOME: homeDir,
+    GSTACK_HOME: path.join(homeDir, '.gstack'),
+  };
+}
+
 function run(cmd: string, opts: { cwd?: string; env?: Record<string, string> } = {}): { stdout: string; stderr: string; exitCode: number } {
   try {
     const stdout = execSync(cmd, {
@@ -326,10 +333,23 @@ describe('setup --team / --no-team / -q', () => {
   // `./setup` does a full install + build + skill regeneration. On a cold cache
   // it routinely takes 60-90s. Give both tests a 3-minute budget so CI doesn't
   // report pre-existing timeouts as failures.
+  let setupHome: string;
+
+  beforeEach(() => {
+    setupHome = mkTmpDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(setupHome, { recursive: true, force: true });
+  });
+
   test(
     'setup -q produces no stdout',
     () => {
-      const result = run(`${path.join(ROOT, 'setup')} -q`, { cwd: ROOT });
+      const result = run(`${path.join(ROOT, 'setup')} -q`, {
+        cwd: ROOT,
+        env: mkIsolatedSetupEnv(setupHome),
+      });
       // -q should suppress informational output (may still have some output from build)
       // The key test is that the "Skill naming:" prompt and "gstack ready" messages are suppressed
       expect(result.stdout).not.toContain('Skill naming:');
@@ -342,7 +362,10 @@ describe('setup --team / --no-team / -q', () => {
     'setup --local prints deprecation warning',
     () => {
       // stderr capture: run via bash redirect so we can capture stderr
-      const result = run(`bash -c '${path.join(ROOT, 'setup')} --local -q 2>&1'`, { cwd: ROOT });
+      const result = run(`bash -c '${path.join(ROOT, 'setup')} --local -q 2>&1'`, {
+        cwd: ROOT,
+        env: mkIsolatedSetupEnv(setupHome),
+      });
       expect(result.stdout).toContain('deprecated');
     },
     180_000,

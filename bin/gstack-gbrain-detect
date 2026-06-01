@@ -25,7 +25,8 @@
  *     "gbrain_launchd_openai_env": {
  *       "status": "not-openai"|"not-launchd"|"ok"|"missing"|"unknown",
  *       "plist_path": "/Users/me/Library/LaunchAgents/com.me.gbrain-http.plist" | null
- *     }
+ *     },
+ *     "gbrain_pooler_mode": "transaction"|"session"|null
  *   }
  *
  * Backward compatibility (per plan codex #5): the 9 pre-existing fields stay
@@ -49,6 +50,7 @@ import {
   resolveGbrainBin,
   readGbrainVersion,
 } from "../lib/gbrain-local-status";
+import { isTransactionModePooler } from "../lib/gbrain-exec";
 
 const STATE_DIR = process.env.GSTACK_HOME || join(userHome(), ".gstack");
 const SCRIPT_DIR = __dirname;
@@ -131,6 +133,17 @@ function detectConfig(): {
     return { exists: true, engine: parsed.engine, embeddingModel };
   }
   return { exists: true, engine: null, embeddingModel };
+}
+
+// --- pooler mode detection (#1435) ---
+//
+// Reads DATABASE_URL from ~/.gbrain/config.json and checks whether it targets
+// a PgBouncer transaction-mode pooler (port 6543). Surfaced so /sync-gbrain
+// and /setup-gbrain can advise users when search may require GBRAIN_PREPARE.
+function detectPoolerMode(): "transaction" | "session" | "unknown" | null {
+  const parsed = tryReadJSON(GBRAIN_CONFIG) as { database_url?: string } | null;
+  if (!parsed?.database_url) return null;
+  return isTransactionModePooler(parsed.database_url) ? "transaction" : "session";
 }
 
 // --- gbrain doctor health (any nonzero exit or non-"ok"/"warnings" status → false) ---
@@ -325,6 +338,7 @@ function main(): void {
     gbrain_cli_required: mcpMode !== "remote-http",
     gbrain_embedding_model: config.embeddingModel,
     gbrain_launchd_openai_env: detectLaunchdOpenaiEnv(config.embeddingModel),
+    gbrain_pooler_mode: detectPoolerMode(),
   };
 
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
