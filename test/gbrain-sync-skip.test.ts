@@ -1,11 +1,9 @@
 /**
  * Tests the split-engine SKIP semantics in bin/gstack-gbrain-sync.ts (plan D12).
  *
- * When localEngineStatus() returns anything except 'ok', the orchestrator's
- * code + memory stages return ran=false summaries; the brain-sync stage runs
- * unchanged. This is the behavior that matters most for Garry's broken-db
- * machine — instead of crashing two stages with ERR output, the orchestrator
- * surfaces a clear skip reason and still pushes artifacts.
+ * When localEngineStatus() returns anything except 'ok', the code stage skips.
+ * In local-stdio mode, memory skips too; in remote-http mode, memory still runs
+ * because it stages markdown for the remote brain without opening local PGLite.
  *
  * We test via the script (spawn) rather than importing runCodeImport/runMemoryIngest
  * directly because they're internal to the orchestrator. The fake gbrain
@@ -21,7 +19,7 @@ import {
   rmSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { execFileSync, spawnSync } from "child_process";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-gbrain-sync.ts");
@@ -112,7 +110,7 @@ function runOrchestrator(env: FakeEnv, args: string[]): { stdout: string; stderr
       ...process.env,
       HOME: env.home,
       GSTACK_HOME: env.gstackHome,
-      PATH: `${env.bindir}:/usr/bin:/bin`,
+      PATH: `${env.bindir}:${dirname(BUN_BIN)}:/usr/bin:/bin`,
     },
   });
   return {
@@ -143,6 +141,25 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
     try {
       const r = runOrchestrator(env, ["--no-code", "--no-brain-sync"]);
       expect(r.stdout + r.stderr).toContain("local engine broken-config");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("runs memory stage in remote-http mode even when local gbrain CLI is missing", () => {
+    const env = makeEnv({ withGbrain: false, withConfig: false });
+    try {
+      writeFileSync(
+        join(env.home, ".claude.json"),
+        JSON.stringify({
+          mcpServers: { gbrain: { type: "http", url: "https://brain.example/mcp" } },
+        }),
+      );
+
+      const r = runOrchestrator(env, ["--no-code", "--no-brain-sync"]);
+      const out = r.stdout + r.stderr;
+      expect(out).toContain("OK    memory");
+      expect(out).not.toContain("local engine no-cli");
     } finally {
       env.cleanup();
     }

@@ -374,7 +374,24 @@ _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 # just because worktree A was synced. Empty string when gbrain is not
 # configured (zero context cost for non-gbrain users).
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
-if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
+
+# Detect remote-MCP mode (Path 4 of /setup-gbrain). Local artifacts sync is
+# a no-op in remote mode; the brain server pulls from GitHub/GitLab on its
+# own cadence. Read claude.json directly to keep this preamble fast (no
+# subprocess to claude CLI on every skill start).
+_GBRAIN_MCP_MODE="none"
+if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
+  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
+  case "$_GBRAIN_MCP_TYPE" in
+    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
+    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
+  esac
+fi
+
+if [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
+  echo "GBrain configured via remote MCP. Local \`gbrain\` CLI may be absent by design."
+  echo "Use the host's gbrain MCP tools for brain/context search; use Grep for code unless local PGLite is pinned."
+elif [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
     _GBRAIN_PIN_PATH=""
@@ -396,19 +413,6 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
 fi
 
 _BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
-
-# Detect remote-MCP mode (Path 4 of /setup-gbrain). Local artifacts sync is
-# a no-op in remote mode; the brain server pulls from GitHub/GitLab on its
-# own cadence. Read claude.json directly to keep this preamble fast (no
-# subprocess to claude CLI on every skill start).
-_GBRAIN_MCP_MODE="none"
-if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
-  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
-  case "$_GBRAIN_MCP_TYPE" in
-    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
-    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
-  esac
-fi
 
 if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
   _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
@@ -452,7 +456,7 @@ fi
 
 
 
-Privacy stop-gate: if output shows `ARTIFACTS_SYNC: off`, `artifacts_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
+Privacy stop-gate: if output shows `ARTIFACTS_SYNC: off`, `artifacts_sync_mode_prompted` is `false`, and either gbrain is on PATH, `gbrain doctor --fast --json` works, or output says `GBrain configured via remote MCP`, ask once:
 
 > gstack can publish your artifacts (CEO plans, designs, reports) to a private GitHub repo that GBrain indexes across machines. How much should sync?
 
@@ -790,10 +794,24 @@ command -v knip >/dev/null 2>&1 && echo "DEADCODE: knip"
 # Shell linting
 command -v shellcheck >/dev/null 2>&1 && ls *.sh scripts/*.sh bin/*.sh 2>/dev/null | head -1 | xargs -I{} echo "SHELL: shellcheck"
 
-# GBrain presence (D6) — only report as a dimension if gbrain is actually
-# set up; otherwise skip so machines without gbrain aren't penalized.
-if command -v gbrain >/dev/null 2>&1 && [ -f "$HOME/.gbrain/config.json" ]; then
-  echo "GBRAIN: gbrain doctor --json (wrapped in timeout 5s)"
+# GBrain presence (D6) — remote MCP is a valid brain even when no local CLI
+# exists. Use the detector instead of `command -v gbrain` so Path 4 setups
+# are not marked missing by mistake.
+if [ -x "$HOME/.claude/skills/gstack/bin/gstack-gbrain-detect" ]; then
+  _GBRAIN_DETECT=$("$HOME/.claude/skills/gstack/bin/gstack-gbrain-detect" 2>/dev/null || echo '{}')
+  _GBRAIN_EFFECTIVE=$(printf '%s' "$_GBRAIN_DETECT" | jq -r '.gbrain_effective_status // .gbrain_local_status // "unknown"' 2>/dev/null || echo unknown)
+  _GBRAIN_MCP=$(printf '%s' "$_GBRAIN_DETECT" | jq -r '.gbrain_mcp_mode // "none"' 2>/dev/null || echo none)
+  if [ "$_GBRAIN_EFFECTIVE" = "ok" ]; then
+    if [ "$_GBRAIN_MCP" = "remote-http" ]; then
+      echo "GBRAIN: remote MCP configured (doctor runs on brain host)"
+    else
+      echo "GBRAIN: gbrain doctor --json (wrapped in timeout 5s)"
+    fi
+  fi
+  _GBRAIN_LAUNCHD_ENV=$(printf '%s' "$_GBRAIN_DETECT" | jq -r '.gbrain_launchd_openai_env.status // "unknown"' 2>/dev/null || echo unknown)
+  if [ "$_GBRAIN_LAUNCHD_ENV" = "missing" ]; then
+    echo "GBRAIN_WARN: embedding_model is openai:* but launchd service env lacks OPENAI_API_KEY; embeddings will stay at 0. See docs/gbrain-sync-errors.md."
+  fi
 fi
 ```
 
@@ -864,7 +882,7 @@ Score each category on a 0-10 scale using this rubric:
 | Tests | 28% | All pass (exit 0) | >95% pass | >80% pass | <=80% pass |
 | Dead code | 13% | Clean (exit 0) | <5 unused exports | <20 unused | >=20 unused |
 | Shell lint | 9% | Clean (exit 0) | <5 issues | >=5 issues | N/A (skip) |
-| GBrain (D6) | 10% | doctor=ok, queue<10, pushed <24h | doctor=warnings OR queue<100 OR pushed <72h | doctor broken OR queue>=100 OR pushed >=72h | N/A (gbrain not installed) |
+| GBrain (D6) | 10% | doctor/effective status ok, queue<10, pushed <24h | doctor=warnings OR queue<100 OR pushed <72h | doctor broken, launchd OpenAI env missing, queue>=100, OR pushed >=72h | N/A (gbrain not configured) |
 
 **Parsing tool output for counts:**
 - **tsc:** Count lines matching `error TS` in output.
@@ -885,8 +903,12 @@ remaining categories.
 **GBrain sub-score computation (D6):**
 
 ```
-doctor_component: 10 if `gbrain doctor --json | jq -r .status` == "ok";
-                   7 if "warnings"; 0 otherwise (or command times out after 5s).
+doctor_component: 10 if `gstack-gbrain-detect | jq -r .gbrain_effective_status` == "ok"
+                   and local mode has `gbrain doctor --json | jq -r .status` == "ok";
+                   10 for remote-http MCP because the brain host owns doctor;
+                   7 if local doctor reports "warnings"; 0 otherwise (or command times out after 5s).
+launchd_component: if `.gbrain_launchd_openai_env.status` == "missing", cap GBrain score at 4
+                   and report: "embeddings will stay at 0 — key not in service env".
 queue_component:   10 if ~/.gstack/.brain-queue.jsonl has <10 lines;
                     7 if 10-100; 0 if >=100 (suggests secret-scan rejections
                     piling up). N/A if artifacts_sync_mode == off.

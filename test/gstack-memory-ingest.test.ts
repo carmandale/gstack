@@ -470,6 +470,36 @@ describe("gstack-memory-ingest writer (gbrain v0.20+ batch `import` interface)",
     expect(stagedList).toMatch(/^\.\/transcripts\/claude-code\/.+\.md$/m);
   });
 
+  it("remote-http mode stages transcripts without requiring local gbrain import", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({
+        mcpServers: { gbrain: { type: "http", url: "https://brain.example/mcp" } },
+      }),
+    );
+
+    const session =
+      `{"type":"user","message":{"role":"user","content":"remote hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/remote"}\n`;
+    writeClaudeCodeSession(home, "tmp-remote", "remote123", session);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+    });
+
+    expect(r.exitCode).toBe(0);
+    const statePath = join(gstackHome, ".transcript-ingest-state.json");
+    const state = JSON.parse(readFileSync(statePath, "utf-8"));
+    expect(state.last_writer).toBe("gstack-memory-ingest (remote-http mode)");
+    const transcriptsDir = join(gstackHome, "transcripts");
+    expect(existsSync(transcriptsDir)).toBe(true);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
   // Originally landed in v1.32.0.0 (PR #1411) on the per-file `gbrain put`
   // path. Postgres rejects 0x00 in UTF-8 text columns. Some Claude Code
   // transcripts contain NUL inside user-pasted content or tool output. The
@@ -702,6 +732,42 @@ esac
     // D6: system_error sets non-zero exit; orchestrator marks ERR.
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toMatch(/\[memory-ingest\] ERR:.*missing `import` subcommand|gbrain CLI not in PATH/);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("explains PGLite single-writer lock failures with the service runbook", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    const binDir = join(home, "lock-bin");
+    mkdirSync(binDir, { recursive: true });
+    const script = `#!/usr/bin/env bash
+case "\${1:-}" in
+  --help|-h) echo "Commands:"; echo "  import <dir>   Import"; exit 0 ;;
+  import) echo "Timed out waiting for PGLite lock" >&2; exit 1 ;;
+  *) echo "unknown"; exit 2 ;;
+esac
+`;
+    const binPath = join(binDir, "gbrain");
+    writeFileSync(binPath, script, "utf-8");
+    chmodSync(binPath, 0o755);
+
+    const session =
+      `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/lock"}\n`;
+    writeClaudeCodeSession(home, "tmp-lock", "lock123", session);
+
+    const r = runScript(["--bulk", "--include-unattributed"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("Timed out waiting for PGLite lock");
+    expect(r.stderr).toContain("stop the service");
+    expect(r.stderr).toContain("docs/gbrain-sync-errors.md");
 
     rmSync(home, { recursive: true, force: true });
   });

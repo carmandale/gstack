@@ -255,15 +255,62 @@ describe('gstack_artifacts_remote', () => {
   });
 });
 
+describe('launchd OpenAI embedding env detection', () => {
+  test('warns when embedding_model is openai:* and gbrain launchd plist lacks OPENAI_API_KEY', () => {
+    fs.mkdirSync(path.join(tmpHome, '.gbrain'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpHome, '.gbrain', 'config.json'),
+      JSON.stringify({ engine: 'pglite', embedding_model: 'openai:text-embedding-3-small' }),
+    );
+    const launchAgents = path.join(tmpHome, 'Library', 'LaunchAgents');
+    fs.mkdirSync(launchAgents, { recursive: true });
+    fs.writeFileSync(
+      path.join(launchAgents, 'com.test.gbrain-http.plist'),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Label</key><string>com.test.gbrain-http</string></dict></plist>`,
+    );
+
+    const r = runDetect({ GSTACK_DETECT_NO_CACHE: '1' });
+    expect(r.json.gbrain_embedding_model).toBe('openai:text-embedding-3-small');
+    expect(r.json.gbrain_launchd_openai_env.status).toBe('missing');
+    expect(r.json.gbrain_launchd_openai_env.plist_path).toContain('com.test.gbrain-http.plist');
+  });
+
+  test('reports ok when the gbrain launchd plist contains OPENAI_API_KEY', () => {
+    fs.mkdirSync(path.join(tmpHome, '.gbrain'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpHome, '.gbrain', 'config.json'),
+      JSON.stringify({ engine: 'pglite', embedding_model: 'openai:text-embedding-3-small' }),
+    );
+    const launchAgents = path.join(tmpHome, 'Library', 'LaunchAgents');
+    fs.mkdirSync(launchAgents, { recursive: true });
+    fs.writeFileSync(
+      path.join(launchAgents, 'com.test.gbrain-http.plist'),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>Label</key><string>com.test.gbrain-http</string>
+<key>EnvironmentVariables</key><dict><key>OPENAI_API_KEY</key><string>redacted</string></dict>
+</dict></plist>`,
+    );
+
+    const r = runDetect({ GSTACK_DETECT_NO_CACHE: '1' });
+    expect(r.json.gbrain_launchd_openai_env.status).toBe('ok');
+  });
+});
+
 describe('schema regression', () => {
   test('output JSON has all expected keys (sync-gbrain compat)', () => {
     const r = runDetect();
     expect(r.code).toBe(0);
     const keys = Object.keys(r.json).sort();
     expect(keys).toEqual([
+      'gbrain_cli_required',
       'gbrain_config_exists',
       'gbrain_doctor_ok',
+      'gbrain_effective_status',
+      'gbrain_embedding_model',
       'gbrain_engine',
+      'gbrain_launchd_openai_env',
       'gbrain_local_status',
       'gbrain_mcp_mode',
       'gbrain_on_path',

@@ -466,6 +466,25 @@ function releaseLock(): void {
   }
 }
 
+function isRemoteHttpMcpMode(): boolean {
+  const home = process.env.HOME || homedir();
+  const claudeJsonPath = join(home, ".claude.json");
+  if (!existsSync(claudeJsonPath)) return false;
+  try {
+    const parsed = JSON.parse(readFileSync(claudeJsonPath, "utf-8")) as {
+      mcpServers?: {
+        gbrain?: { type?: string; transport?: string; url?: string };
+      };
+    };
+    const entry = parsed.mcpServers?.gbrain;
+    if (!entry) return false;
+    const mode = entry.type || entry.transport || "";
+    return mode === "url" || mode === "http" || mode === "sse" || Boolean(entry.url);
+  } catch {
+    return false;
+  }
+}
+
 // ── Stage runners ──────────────────────────────────────────────────────────
 
 /**
@@ -483,6 +502,7 @@ function skipStageForLocalStatus(
   stage: "code" | "memory",
   status: LocalEngineStatus,
   t0: number,
+  opts: { remoteHttpMode?: boolean } = {},
 ): StageResult {
   const reasons: Record<Exclude<LocalEngineStatus, "ok">, string> = {
     "no-cli": "gbrain CLI not on PATH; install via /setup-gbrain",
@@ -493,7 +513,11 @@ function skipStageForLocalStatus(
     "broken-db":
       "config points at unreachable DB; see /setup-gbrain Step 1.5",
   };
-  const reason = reasons[status as Exclude<LocalEngineStatus, "ok">];
+  const remoteReason =
+    "remote MCP is configured; this local engine state only affects optional local code search";
+  const reason = opts.remoteHttpMode
+    ? remoteReason
+    : reasons[status as Exclude<LocalEngineStatus, "ok">];
   return {
     name: stage,
     ran: false,
@@ -535,7 +559,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // never actually probes anything.
   const localStatus = localEngineStatus({ noCache: false });
   if (localStatus !== "ok") {
-    return skipStageForLocalStatus("code", localStatus, t0);
+    return skipStageForLocalStatus("code", localStatus, t0, {
+      remoteHttpMode: isRemoteHttpMcpMode(),
+    });
   }
 
   // Step 0a: Best-effort cleanup of pre-pathhash legacy source (v1.x form).
@@ -736,12 +762,14 @@ function runMemoryIngest(args: CliArgs): StageResult {
     return { name: "memory", ran: false, ok: true, duration_ms: 0, summary: "would: gstack-memory-ingest --probe" };
   }
 
-  // Split-engine pre-flight (per plan D12). gstack-memory-ingest shells out
-  // to `gbrain import` which targets the LOCAL engine. When that engine is
-  // not ok, SKIP cleanly so brain-sync (the only stage that doesn't depend
-  // on local engine) still runs.
+  // Split-engine pre-flight (per plan D12). In local-stdio mode,
+  // gstack-memory-ingest shells out to `gbrain import` against the local
+  // engine. In remote-http mode, gstack-memory-ingest stages markdown under
+  // ~/.gstack/transcripts and deliberately skips local gbrain import, so it
+  // must still run even when the local CLI/config is absent.
   const localStatus = localEngineStatus({ noCache: false });
-  if (localStatus !== "ok") {
+  const remoteHttpMode = isRemoteHttpMcpMode();
+  if (localStatus !== "ok" && !remoteHttpMode) {
     return skipStageForLocalStatus("memory", localStatus, t0);
   }
 

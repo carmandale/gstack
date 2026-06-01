@@ -18,12 +18,19 @@
  *     "gstack_brain_sync_mode": "off"|"artifacts-only"|"full",
  *     "gstack_brain_git": true|false,
  *     "gstack_artifacts_remote": "https://..." | "",
- *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"
+ *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db",
+ *     "gbrain_effective_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db",
+ *     "gbrain_cli_required": true|false,
+ *     "gbrain_embedding_model": "openai:text-embedding-3-small" | null,
+ *     "gbrain_launchd_openai_env": {
+ *       "status": "not-openai"|"not-launchd"|"ok"|"missing"|"unknown",
+ *       "plist_path": "/Users/me/Library/LaunchAgents/com.me.gbrain-http.plist" | null
+ *     }
  *   }
  *
  * Backward compatibility (per plan codex #5): the 9 pre-existing fields stay
- * identical in name + type + value semantics. One new field added:
- * gbrain_local_status. Key order may differ from the bash version's `jq -n`
+ * identical in name + type + value semantics. Later fields are additive.
+ * Key order may differ from the bash version's `jq -n`
  * output — downstream parsers must not depend on key order (none currently do).
  *
  * Env:
@@ -33,7 +40,7 @@
  */
 
 import { execFileSync } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -48,6 +55,20 @@ const SCRIPT_DIR = __dirname;
 const CONFIG_BIN = join(SCRIPT_DIR, "gstack-config");
 const GBRAIN_CONFIG = join(userHome(), ".gbrain", "config.json");
 const CLAUDE_JSON = join(userHome(), ".claude.json");
+
+type LocalStatus = ReturnType<typeof localEngineStatus>;
+type McpMode = "local-stdio" | "remote-http" | "none";
+type LaunchdOpenaiEnvStatus =
+  | "not-openai"
+  | "not-launchd"
+  | "ok"
+  | "missing"
+  | "unknown";
+
+interface LaunchdOpenaiEnvCheck {
+  status: LaunchdOpenaiEnvStatus;
+  plist_path: string | null;
+}
 
 function userHome(): string {
   return process.env.HOME || homedir();
@@ -88,14 +109,28 @@ function detectGbrain(): { onPath: boolean; version: string | null } {
 }
 
 // --- gbrain config existence + engine kind ---
-function detectConfig(): { exists: boolean; engine: "pglite" | "postgres" | null } {
-  if (!existsSync(GBRAIN_CONFIG)) return { exists: false, engine: null };
-  const parsed = tryReadJSON(GBRAIN_CONFIG) as { engine?: string } | null;
-  if (!parsed) return { exists: true, engine: null };
-  if (parsed.engine === "pglite" || parsed.engine === "postgres") {
-    return { exists: true, engine: parsed.engine };
+function detectConfig(): {
+  exists: boolean;
+  engine: "pglite" | "postgres" | null;
+  embeddingModel: string | null;
+} {
+  if (!existsSync(GBRAIN_CONFIG)) {
+    return { exists: false, engine: null, embeddingModel: null };
   }
-  return { exists: true, engine: null };
+  const parsed = tryReadJSON(GBRAIN_CONFIG) as
+    | { engine?: string; embedding_model?: string; embeddingModel?: string }
+    | null;
+  if (!parsed) return { exists: true, engine: null, embeddingModel: null };
+  const embeddingModel =
+    typeof parsed.embedding_model === "string"
+      ? parsed.embedding_model
+      : typeof parsed.embeddingModel === "string"
+        ? parsed.embeddingModel
+        : null;
+  if (parsed.engine === "pglite" || parsed.engine === "postgres") {
+    return { exists: true, engine: parsed.engine, embeddingModel };
+  }
+  return { exists: true, engine: null, embeddingModel };
 }
 
 // --- gbrain doctor health (any nonzero exit or non-"ok"/"warnings" status → false) ---
@@ -134,7 +169,7 @@ function detectBrainGit(): boolean {
 //   1. `claude mcp get gbrain --json` — public CLI surface, structured output
 //   2. `claude mcp list` text-grep    — older claude versions without --json
 //   3. `~/.claude.json` jq read       — last resort if `claude` isn't on PATH
-function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
+function detectMcpMode(): McpMode {
   const claudeOnPath = tryExec("sh", ["-c", "command -v claude"], 1_000) !== null;
   if (claudeOnPath) {
     // Tier 1: `claude mcp get gbrain --json`
@@ -181,6 +216,75 @@ function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
   return "none";
 }
 
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+function plistHasOpenAIKey(plistPath: string): boolean | null {
+  const plistBuddy = "/usr/libexec/PlistBuddy";
+  if (existsSync(plistBuddy)) {
+    const value = tryExec(
+      plistBuddy,
+      ["-c", "Print :EnvironmentVariables:OPENAI_API_KEY", plistPath],
+      1_000,
+    );
+    if (value) return true;
+  }
+
+  const text = readText(plistPath);
+  if (!text) return null;
+  return text.includes("<key>OPENAI_API_KEY</key>") || text.includes("OPENAI_API_KEY");
+}
+
+function findGbrainLaunchdPlists(): string[] {
+  const dir = join(userHome(), "Library", "LaunchAgents");
+  if (!existsSync(dir)) return [];
+  try {
+    return readdirSync(dir)
+      .filter((name) => name.endsWith(".plist"))
+      .map((name) => join(dir, name))
+      .filter((path) => {
+        const basename = path.split("/").pop() || "";
+        if (/gbrain/i.test(basename)) return true;
+        const text = readText(path);
+        return text ? /gbrain/i.test(text) : false;
+      });
+  } catch {
+    return [];
+  }
+}
+
+function detectLaunchdOpenaiEnv(embeddingModel: string | null): LaunchdOpenaiEnvCheck {
+  if (!embeddingModel || !embeddingModel.startsWith("openai:")) {
+    return { status: "not-openai", plist_path: null };
+  }
+
+  const plists = findGbrainLaunchdPlists();
+  if (plists.length === 0) {
+    return { status: "not-launchd", plist_path: null };
+  }
+
+  let sawUnknown = false;
+  for (const plist of plists) {
+    const hasKey = plistHasOpenAIKey(plist);
+    if (hasKey === true) return { status: "ok", plist_path: plist };
+    if (hasKey === null) sawUnknown = true;
+  }
+
+  return { status: sawUnknown ? "unknown" : "missing", plist_path: plists[0] };
+}
+
+function effectiveGbrainStatus(localStatus: LocalStatus, mcpMode: McpMode): LocalStatus {
+  // In Path 4, the brain/context surface is intentionally remote. A missing
+  // local CLI/config may only mean local code search was declined.
+  if (mcpMode === "remote-http") return "ok";
+  return localStatus;
+}
+
 // --- artifacts remote URL with brain-* fallback during the rename migration window ---
 function detectArtifactsRemote(): string {
   const newPath = join(userHome(), ".gstack-artifacts-remote.txt");
@@ -201,6 +305,8 @@ function main(): void {
   const gbrain = detectGbrain();
   const config = detectConfig();
   const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
+  const mcpMode = detectMcpMode();
+  const localStatus = localEngineStatus({ noCache });
 
   // Order MATCHES the bash version's jq output for callers that visually grep
   // (key order doesn't affect JSON parsers, but minimizes review noise).
@@ -210,11 +316,15 @@ function main(): void {
     gbrain_config_exists: config.exists,
     gbrain_engine: config.engine,
     gbrain_doctor_ok: detectDoctor(gbrain.onPath),
-    gbrain_mcp_mode: detectMcpMode(),
+    gbrain_mcp_mode: mcpMode,
     gstack_brain_sync_mode: detectSyncMode(),
     gstack_brain_git: detectBrainGit(),
     gstack_artifacts_remote: detectArtifactsRemote(),
-    gbrain_local_status: localEngineStatus({ noCache }),
+    gbrain_local_status: localStatus,
+    gbrain_effective_status: effectiveGbrainStatus(localStatus, mcpMode),
+    gbrain_cli_required: mcpMode !== "remote-http",
+    gbrain_embedding_model: config.embeddingModel,
+    gbrain_launchd_openai_env: detectLaunchdOpenaiEnv(config.embeddingModel),
   };
 
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");

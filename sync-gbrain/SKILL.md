@@ -376,7 +376,24 @@ _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 # just because worktree A was synced. Empty string when gbrain is not
 # configured (zero context cost for non-gbrain users).
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
-if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
+
+# Detect remote-MCP mode (Path 4 of /setup-gbrain). Local artifacts sync is
+# a no-op in remote mode; the brain server pulls from GitHub/GitLab on its
+# own cadence. Read claude.json directly to keep this preamble fast (no
+# subprocess to claude CLI on every skill start).
+_GBRAIN_MCP_MODE="none"
+if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
+  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
+  case "$_GBRAIN_MCP_TYPE" in
+    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
+    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
+  esac
+fi
+
+if [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
+  echo "GBrain configured via remote MCP. Local \`gbrain\` CLI may be absent by design."
+  echo "Use the host's gbrain MCP tools for brain/context search; use Grep for code unless local PGLite is pinned."
+elif [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
     _GBRAIN_PIN_PATH=""
@@ -398,19 +415,6 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
 fi
 
 _BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
-
-# Detect remote-MCP mode (Path 4 of /setup-gbrain). Local artifacts sync is
-# a no-op in remote mode; the brain server pulls from GitHub/GitLab on its
-# own cadence. Read claude.json directly to keep this preamble fast (no
-# subprocess to claude CLI on every skill start).
-_GBRAIN_MCP_MODE="none"
-if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
-  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
-  case "$_GBRAIN_MCP_TYPE" in
-    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
-    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
-  esac
-fi
 
 if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
   _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
@@ -454,7 +458,7 @@ fi
 
 
 
-Privacy stop-gate: if output shows `ARTIFACTS_SYNC: off`, `artifacts_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
+Privacy stop-gate: if output shows `ARTIFACTS_SYNC: off`, `artifacts_sync_mode_prompted` is `false`, and either gbrain is on PATH, `gbrain doctor --fast --json` works, or output says `GBrain configured via remote MCP`, ask once:
 
 > gstack can publish your artifacts (CEO plans, designs, reports) to a private GitHub repo that GBrain indexes across machines. How much should sync?
 
@@ -815,16 +819,21 @@ Read `gbrain_local_status` from the Step 1 detect output. Branch as follows
 BEFORE invoking the orchestrator:
 
 - **`ok`**: proceed to Step 2 normally.
-- **`no-cli`**: STOP. "Local gbrain CLI not installed. Run `/setup-gbrain`
-  first."
+- **`no-cli`** AND `gbrain_mcp_mode == "remote-http"`: tell the user
+  "Your brain queries work via remote MCP. There is no local `gbrain` CLI by
+  design, so code search is skipped; transcript/memory staging still runs for
+  the remote brain." Then proceed to Step 2. Do NOT abort.
+- **`no-cli`** AND `gbrain_mcp_mode != "remote-http"`: STOP. "Local gbrain
+  CLI not installed. Run `/setup-gbrain` first."
 - **`missing-config`** AND `gbrain_mcp_mode == "remote-http"`: tell the user
   "Your brain queries (the `mcp__gbrain__*` tools) work via remote MCP, but
   symbol code search needs a local PGLite. Run `/setup-gbrain` and pick
   'Yes' at the new 'local code index' prompt (Step 4.5), or run
-  `gbrain init --pglite --json` directly. Continuing without code stage."
-  Then proceed to Step 2 — the orchestrator's `runCodeImport()` and
-  `runMemoryIngest()` will return SKIP per plan D12; only `runBrainSyncPush()`
-  will run. Do NOT abort.
+  `gbrain init --pglite --json` directly. Continuing without code stage;
+  transcript/memory staging still runs for the remote brain."
+  Then proceed to Step 2 — the orchestrator's `runCodeImport()` will return
+  SKIP per plan D12, while `runMemoryIngest()` persists staged markdown for
+  the remote brain. Do NOT abort.
 - **`missing-config`** AND `gbrain_mcp_mode != "remote-http"`: STOP. "Local
   gbrain CLI is installed but no engine config. Run `/setup-gbrain` first."
 - **`broken-config`** OR **`broken-db`**: STOP with a clear message:

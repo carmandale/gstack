@@ -376,7 +376,24 @@ _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 # just because worktree A was synced. Empty string when gbrain is not
 # configured (zero context cost for non-gbrain users).
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
-if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
+
+# Detect remote-MCP mode (Path 4 of /setup-gbrain). Local artifacts sync is
+# a no-op in remote mode; the brain server pulls from GitHub/GitLab on its
+# own cadence. Read claude.json directly to keep this preamble fast (no
+# subprocess to claude CLI on every skill start).
+_GBRAIN_MCP_MODE="none"
+if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
+  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
+  case "$_GBRAIN_MCP_TYPE" in
+    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
+    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
+  esac
+fi
+
+if [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
+  echo "GBrain configured via remote MCP. Local \`gbrain\` CLI may be absent by design."
+  echo "Use the host's gbrain MCP tools for brain/context search; use Grep for code unless local PGLite is pinned."
+elif [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
     _GBRAIN_PIN_PATH=""
@@ -398,19 +415,6 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
 fi
 
 _BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
-
-# Detect remote-MCP mode (Path 4 of /setup-gbrain). Local artifacts sync is
-# a no-op in remote mode; the brain server pulls from GitHub/GitLab on its
-# own cadence. Read claude.json directly to keep this preamble fast (no
-# subprocess to claude CLI on every skill start).
-_GBRAIN_MCP_MODE="none"
-if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
-  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
-  case "$_GBRAIN_MCP_TYPE" in
-    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
-    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
-  esac
-fi
 
 if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
   _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
@@ -454,7 +458,7 @@ fi
 
 
 
-Privacy stop-gate: if output shows `ARTIFACTS_SYNC: off`, `artifacts_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
+Privacy stop-gate: if output shows `ARTIFACTS_SYNC: off`, `artifacts_sync_mode_prompted` is `false`, and either gbrain is on PATH, `gbrain doctor --fast --json` works, or output says `GBrain configured via remote MCP`, ask once:
 
 > gstack can publish your artifacts (CEO plans, designs, reports) to a private GitHub repo that GBrain indexes across machines. How much should sync?
 
@@ -784,9 +788,9 @@ implemented as a dispatcher binary.
 
 Capture the JSON output. It contains: `gbrain_on_path`, `gbrain_version`,
 `gbrain_config_exists`, `gbrain_engine`, `gbrain_doctor_ok`, `gbrain_mcp_mode`,
-`gstack_brain_sync_mode`, `gstack_brain_git`, `gstack_artifacts_remote`, and
-the v1.34.0.0+ `gbrain_local_status` field (one of: `ok`, `no-cli`,
-`missing-config`, `broken-config`, `broken-db`).
+`gstack_brain_sync_mode`, `gstack_brain_git`, `gstack_artifacts_remote`,
+`gbrain_local_status`, `gbrain_effective_status`, `gbrain_cli_required`,
+`gbrain_embedding_model`, and `gbrain_launchd_openai_env`.
 
 Skip downstream steps that are already done. Report the detected state in
 one line so the user knows what you found:
@@ -863,8 +867,10 @@ local-stdio).
 **If D (Quit)**: STOP the skill cleanly.
 
 For `gbrain_local_status` values of `no-cli` or `missing-config`, do NOT fire
-Step 1.5 — fall through to Step 2 (where `no-cli` triggers Step 3 install and
-`missing-config` triggers Step 4 init).
+Step 1.5. If `gbrain_mcp_mode == "remote-http"`, this can be a healthy
+MCP-only setup; fall through to Step 2's remote-MCP shortcut instead of
+installing a local CLI. Otherwise fall through to Step 2, where `no-cli`
+triggers Step 3 install and `missing-config` triggers Step 4 init.
 
 ---
 
@@ -1494,22 +1500,26 @@ last-sync time. Machine state stays in the Configuration block above.
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->
 
-GBrain is set up and synced on this machine. The agent should prefer gbrain
-over Grep when the question is semantic or when you don't know the exact
-identifier yet. Two indexed corpora available via the `gbrain` CLI:
-- This repo's code (registered as `gstack-code-<repo>` source).
-- `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
-  the existing federation pipeline).
+GBrain is set up for this machine. The agent should prefer gbrain over Grep
+when the question is semantic or when you don't know the exact identifier yet.
+In local-stdio mode, use the `gbrain` CLI. In remote-http mode, use the host's
+gbrain MCP tools for brain/context queries; a missing local `gbrain` CLI is
+expected unless local PGLite code search was also installed.
+
+Available corpora depend on mode:
+- This repo's code, when a local `.gbrain-source` pin exists.
+- `~/.gstack/` curated memory/transcripts, staged locally and indexed by the
+  remote brain in remote-http mode or imported locally in local-stdio mode.
 
 Prefer gbrain when:
 - "Where is X handled?" / semantic intent, no exact string yet:
-    `gbrain search "<terms>"` or `gbrain query "<question>"`
+    `gbrain search "<terms>"` / `gbrain query "<question>"` or the gbrain MCP search/query tools
 - "Where is symbol Y defined?" / symbol-based code questions:
     `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
 - "What calls Y?" / "What does Y depend on?":
     `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
 - "What did we decide last time?" / past plans, retros, learnings:
-    `gbrain search "<terms>" --source gstack-brain-<user>`
+    `gbrain search "<terms>" --source gstack-brain-<user>` or the gbrain MCP search tool
 
 Grep is still right for known exact strings, regex, multiline patterns, and
 file globs. The brain auto-syncs incrementally on every gstack skill start.

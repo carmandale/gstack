@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `/sync-gbrain` remote-MCP mode now treats an absent local `gbrain` CLI as a
+  valid split-engine setup: code search skips cleanly, while memory/transcript
+  staging still runs for the remote brain.
+- `gstack-gbrain-detect` now reports an effective brain status for remote MCP
+  setups and warns when an OpenAI-backed launchd GBrain service is missing
+  `OPENAI_API_KEY` in the service environment.
+- `gstack-memory-ingest` now turns the PGLite single-writer timeout into a
+  clear stop-service/backfill/restart runbook instead of a bare lock error.
+
 ## [1.42.0.0] - 2026-05-19
 
 ## **Daegu wave: 23 community-filed bugs land as one bisect-clean PR with the documented sidebar security stack finally enforced.**

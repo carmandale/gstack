@@ -10,7 +10,7 @@
  * Asserts:
  *   1. All 9 pre-existing keys are present
  *   2. Each pre-existing key has the same primitive type/union as the bash version
- *   3. The new key (gbrain_local_status) is present and a string
+ *   3. Additive gbrain status keys are present and typed
  *   4. Output is parseable JSON
  *   5. No keys removed/renamed
  */
@@ -58,6 +58,10 @@ interface DetectShape {
   gstack_brain_git: boolean;
   gstack_artifacts_remote: string;
   gbrain_local_status: string;
+  gbrain_effective_status: string;
+  gbrain_cli_required: boolean;
+  gbrain_embedding_model: string | null;
+  gbrain_launchd_openai_env: { status: string; plist_path: string | null };
 }
 
 describe("bin/gstack-gbrain-detect — shape regression", () => {
@@ -75,7 +79,7 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
     }
   });
 
-  it("contains all 9 pre-existing keys + the new gbrain_local_status key", () => {
+  it("contains all 9 pre-existing keys + additive gbrain status keys", () => {
     const tmp = mkdtempSync(join(tmpdir(), "detect-shape-"));
     try {
       const out = runDetect({
@@ -96,8 +100,12 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
       expect(parsed).toHaveProperty("gstack_brain_git");
       expect(parsed).toHaveProperty("gstack_artifacts_remote");
 
-      // 1 new key (added by this fix):
+      // Additive keys:
       expect(parsed).toHaveProperty("gbrain_local_status");
+      expect(parsed).toHaveProperty("gbrain_effective_status");
+      expect(parsed).toHaveProperty("gbrain_cli_required");
+      expect(parsed).toHaveProperty("gbrain_embedding_model");
+      expect(parsed).toHaveProperty("gbrain_launchd_openai_env");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -132,6 +140,12 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
 
       // New field: string enum
       expect(typeof parsed.gbrain_local_status).toBe("string");
+      expect(typeof parsed.gbrain_effective_status).toBe("string");
+      expect(typeof parsed.gbrain_cli_required).toBe("boolean");
+      const embeddingModelType =
+        parsed.gbrain_embedding_model === null ? "null" : typeof parsed.gbrain_embedding_model;
+      expect(embeddingModelType === "string" || embeddingModelType === "null").toBe(true);
+      expect(typeof parsed.gbrain_launchd_openai_env).toBe("object");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -179,6 +193,31 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
       expect(["ok", "no-cli", "missing-config", "broken-config", "broken-db"]).toContain(
         parsed.gbrain_local_status,
       );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("gbrain_effective_status treats remote MCP with no local CLI as ok", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "detect-shape-"));
+    try {
+      writeFileSync(
+        join(tmp, ".claude.json"),
+        JSON.stringify({
+          mcpServers: { gbrain: { type: "http", url: "https://brain.example/mcp" } },
+        }),
+      );
+      const out = runDetect({
+        HOME: tmp,
+        PATH: "/usr/bin:/bin",
+        GSTACK_HOME: tmp,
+        GSTACK_DETECT_NO_CACHE: "1",
+      });
+      const parsed = JSON.parse(out) as DetectShape;
+      expect(parsed.gbrain_mcp_mode).toBe("remote-http");
+      expect(parsed.gbrain_local_status).toBe("no-cli");
+      expect(parsed.gbrain_effective_status).toBe("ok");
+      expect(parsed.gbrain_cli_required).toBe(false);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

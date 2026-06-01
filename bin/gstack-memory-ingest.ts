@@ -1360,6 +1360,20 @@ function runGbrainImport(
   });
 }
 
+function explainImportFailure(status: number | null, stderr: string): string {
+  if (stderr.includes("Timed out waiting for PGLite lock")) {
+    return (
+      "Timed out waiting for PGLite lock. A running gbrain HTTP service is " +
+      "holding the local PGLite database; stop the service, run the import/embed " +
+      "operation, then restart it. For remote MCP setups, make sure gbrain is " +
+      "registered as remote-http so memory ingest stages markdown instead of " +
+      "opening local PGLite. See docs/gbrain-sync-errors.md."
+    );
+  }
+  const tail = (stderr.trim().split("\n").pop() || "").slice(0, 300);
+  return `gbrain import exited ${status}: ${tail}`;
+}
+
 async function ingestPass(args: CliArgs): Promise<BulkResult> {
   const t0 = Date.now();
   const state = loadState();
@@ -1421,7 +1435,9 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     };
   }
 
-  if (!gbrainAvailable()) {
+  const remoteHttpMode = isRemoteHttpMcpMode();
+
+  if (!remoteHttpMode && !gbrainAvailable()) {
     const msg =
       "gbrain CLI not in PATH or missing `import` subcommand. Run /setup-gbrain.";
     console.error(`[memory-ingest] ERR: ${msg}`);
@@ -1444,7 +1460,6 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   // entirely. gstack-brain-sync push will pick the dir up via its allowlist
   // and the brain admin's pull job will index transcripts into the remote
   // brain. Local PGLite (if any) stays code-only.
-  const remoteHttpMode = isRemoteHttpMcpMode();
   const stagingDir = remoteHttpMode
     ? makePersistentTranscriptDir()
     : makeStagingDir();
@@ -1549,8 +1564,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     const importJson = parseImportJson(stdout);
 
     if (importResult.status !== 0) {
-      const tail = (stderr.trim().split("\n").pop() || "").slice(0, 300);
-      const msg = `gbrain import exited ${importResult.status}: ${tail}`;
+      const msg = explainImportFailure(importResult.status, stderr);
       console.error(`[memory-ingest] ERR: ${msg}`);
       // We conservatively state-record nothing on a non-zero exit — per-run
       // partial progress is invisible to us when the importer crashed.

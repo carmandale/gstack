@@ -95,16 +95,21 @@ Read `gbrain_local_status` from the Step 1 detect output. Branch as follows
 BEFORE invoking the orchestrator:
 
 - **`ok`**: proceed to Step 2 normally.
-- **`no-cli`**: STOP. "Local gbrain CLI not installed. Run `/setup-gbrain`
-  first."
+- **`no-cli`** AND `gbrain_mcp_mode == "remote-http"`: tell the user
+  "Your brain queries work via remote MCP. There is no local `gbrain` CLI by
+  design, so code search is skipped; transcript/memory staging still runs for
+  the remote brain." Then proceed to Step 2. Do NOT abort.
+- **`no-cli`** AND `gbrain_mcp_mode != "remote-http"`: STOP. "Local gbrain
+  CLI not installed. Run `/setup-gbrain` first."
 - **`missing-config`** AND `gbrain_mcp_mode == "remote-http"`: tell the user
   "Your brain queries (the `mcp__gbrain__*` tools) work via remote MCP, but
   symbol code search needs a local PGLite. Run `/setup-gbrain` and pick
   'Yes' at the new 'local code index' prompt (Step 4.5), or run
-  `gbrain init --pglite --json` directly. Continuing without code stage."
-  Then proceed to Step 2 — the orchestrator's `runCodeImport()` and
-  `runMemoryIngest()` will return SKIP per plan D12; only `runBrainSyncPush()`
-  will run. Do NOT abort.
+  `gbrain init --pglite --json` directly. Continuing without code stage;
+  transcript/memory staging still runs for the remote brain."
+  Then proceed to Step 2 — the orchestrator's `runCodeImport()` will return
+  SKIP per plan D12, while `runMemoryIngest()` persists staged markdown for
+  the remote brain. Do NOT abort.
 - **`missing-config`** AND `gbrain_mcp_mode != "remote-http"`: STOP. "Local
   gbrain CLI is installed but no engine config. Run `/setup-gbrain` first."
 - **`broken-config`** OR **`broken-db`**: STOP with a clear message:

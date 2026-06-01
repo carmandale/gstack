@@ -70,10 +70,24 @@ command -v knip >/dev/null 2>&1 && echo "DEADCODE: knip"
 # Shell linting
 command -v shellcheck >/dev/null 2>&1 && ls *.sh scripts/*.sh bin/*.sh 2>/dev/null | head -1 | xargs -I{} echo "SHELL: shellcheck"
 
-# GBrain presence (D6) — only report as a dimension if gbrain is actually
-# set up; otherwise skip so machines without gbrain aren't penalized.
-if command -v gbrain >/dev/null 2>&1 && [ -f "$HOME/.gbrain/config.json" ]; then
-  echo "GBRAIN: gbrain doctor --json (wrapped in timeout 5s)"
+# GBrain presence (D6) — remote MCP is a valid brain even when no local CLI
+# exists. Use the detector instead of `command -v gbrain` so Path 4 setups
+# are not marked missing by mistake.
+if [ -x "$HOME/.claude/skills/gstack/bin/gstack-gbrain-detect" ]; then
+  _GBRAIN_DETECT=$("$HOME/.claude/skills/gstack/bin/gstack-gbrain-detect" 2>/dev/null || echo '{}')
+  _GBRAIN_EFFECTIVE=$(printf '%s' "$_GBRAIN_DETECT" | jq -r '.gbrain_effective_status // .gbrain_local_status // "unknown"' 2>/dev/null || echo unknown)
+  _GBRAIN_MCP=$(printf '%s' "$_GBRAIN_DETECT" | jq -r '.gbrain_mcp_mode // "none"' 2>/dev/null || echo none)
+  if [ "$_GBRAIN_EFFECTIVE" = "ok" ]; then
+    if [ "$_GBRAIN_MCP" = "remote-http" ]; then
+      echo "GBRAIN: remote MCP configured (doctor runs on brain host)"
+    else
+      echo "GBRAIN: gbrain doctor --json (wrapped in timeout 5s)"
+    fi
+  fi
+  _GBRAIN_LAUNCHD_ENV=$(printf '%s' "$_GBRAIN_DETECT" | jq -r '.gbrain_launchd_openai_env.status // "unknown"' 2>/dev/null || echo unknown)
+  if [ "$_GBRAIN_LAUNCHD_ENV" = "missing" ]; then
+    echo "GBRAIN_WARN: embedding_model is openai:* but launchd service env lacks OPENAI_API_KEY; embeddings will stay at 0. See docs/gbrain-sync-errors.md."
+  fi
 fi
 ```
 
@@ -144,7 +158,7 @@ Score each category on a 0-10 scale using this rubric:
 | Tests | 28% | All pass (exit 0) | >95% pass | >80% pass | <=80% pass |
 | Dead code | 13% | Clean (exit 0) | <5 unused exports | <20 unused | >=20 unused |
 | Shell lint | 9% | Clean (exit 0) | <5 issues | >=5 issues | N/A (skip) |
-| GBrain (D6) | 10% | doctor=ok, queue<10, pushed <24h | doctor=warnings OR queue<100 OR pushed <72h | doctor broken OR queue>=100 OR pushed >=72h | N/A (gbrain not installed) |
+| GBrain (D6) | 10% | doctor/effective status ok, queue<10, pushed <24h | doctor=warnings OR queue<100 OR pushed <72h | doctor broken, launchd OpenAI env missing, queue>=100, OR pushed >=72h | N/A (gbrain not configured) |
 
 **Parsing tool output for counts:**
 - **tsc:** Count lines matching `error TS` in output.
@@ -165,8 +179,12 @@ remaining categories.
 **GBrain sub-score computation (D6):**
 
 ```
-doctor_component: 10 if `gbrain doctor --json | jq -r .status` == "ok";
-                   7 if "warnings"; 0 otherwise (or command times out after 5s).
+doctor_component: 10 if `gstack-gbrain-detect | jq -r .gbrain_effective_status` == "ok"
+                   and local mode has `gbrain doctor --json | jq -r .status` == "ok";
+                   10 for remote-http MCP because the brain host owns doctor;
+                   7 if local doctor reports "warnings"; 0 otherwise (or command times out after 5s).
+launchd_component: if `.gbrain_launchd_openai_env.status` == "missing", cap GBrain score at 4
+                   and report: "embeddings will stay at 0 — key not in service env".
 queue_component:   10 if ~/.gstack/.brain-queue.jsonl has <10 lines;
                     7 if 10-100; 0 if >=100 (suggests secret-scan rejections
                     piling up). N/A if artifacts_sync_mode == off.
